@@ -262,3 +262,102 @@ export interface AgentStep {
   sourceCount?: number;
   imageCount?: number;
 }
+
+// -----------------------------------------------------------------------
+// JobNexus Types
+// -----------------------------------------------------------------------
+
+export type CandidateStatus = "active" | "inactive";
+export type CVStatus = "pending" | "parsing" | "indexing" | "indexed" | "failed";
+export type JobStatus = "open" | "closed" | "draft";
+export type EmploymentType = "full_time" | "part_time" | "contract" | "internship" | "remote";
+export type MatchStatus = "pending" | "accepted" | "rejected";
+
+export interface Candidate {
+  id: number;
+  name: string;
+  email: string | null;
+  phone: string | null;
+  location: string | null;
+  desired_role: string | null;
+  desired_salary_min: number | null;
+  desired_salary_max: number | null;
+  experience_years: number | null;
+  education_level: string | null;
+  status: CandidateStatus;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CandidateCV {
+  id: number;
+  candidate_id: number;
+  original_filename: string;
+  file_type: string;
+  file_size: number;
+  status: CVStatus;
+  chunk_count: number;
+  page_count: number;
+  skills_extracted: string[] | null;
+  experience_extracted: unknown[] | null;
+  education_extracted: unknown[] | null;
+  summary_extracted: string | null;
+  processing_time_ms: number;
+  error_message: string | null;
+  created_at: string;
+}
+
+export interface Company {
+  id: number;
+  name: string;
+  industry: string | null;
+  location: string | null;
+  size: string | null;
+  description: string | null;
+  created_at: string;
+}
+
+export interface JobPosting {
+  id: number;
+  company_id: number;
+  title: string;
+  description_text: string | null;
+  location: string | null;
+  salary_min: number | null;
+  salary_max: number | null;
+  experience_required: number | null;
+  skills_required: string[] | null;
+  skills_nice_to_have: string[] | null;
+  employment_type: EmploymentType;
+  status: JobStatus;
+  chunk_count: number;
+  processing_time_ms: number;
+  original_filename: string | null;
+  created_at: string;
+  company?: Company;
+  markdown_content?: string | null;
+}
+
+export interface ScoreBreakdown {
+  semantic_score: number;
+  skill_match_score: number;
+  experience_score: number;
+  location_score: number;
+  salary_score: number;
+}
+
+export interface MatchResult {
+  id: number;
+  candidate_id: number;
+  job_id: number;
+  overall_score: number;
+  semantic_score: number;
+  skill_match_score: number;
+  experience_score: number;
+  location_score: number;
+  salary_score: number;
+  matched_skills: string[] | null;
+  missing_skills: string[] | null;
+  explanation: string | null;
+  status: MatchStatus;
+}

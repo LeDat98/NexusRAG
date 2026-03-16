@@ -1,9 +1,13 @@
 import { memo } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import {
-  Database,
+  Sparkles,
+  Briefcase,
+  Users,
+  MessageSquare,
   ChevronLeft,
   ChevronRight,
+  Database,
 } from "lucide-react";
 import { useWorkspaces } from "@/hooks/useWorkspaces";
 import { ThemeToggle } from "@/components/ui/theme-toggle";
@@ -14,13 +18,19 @@ interface SidebarProps {
   onToggle: () => void;
 }
 
+const NAV_ITEMS = [
+  { path: "/", label: "Home", icon: Sparkles, exact: true },
+  { path: "/candidate", label: "Find Jobs", icon: Briefcase },
+  { path: "/recruiter", label: "Find Talent", icon: Users },
+  { path: "/chat", label: "Chat", icon: MessageSquare },
+] as const;
+
 export const Sidebar = memo(function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const { data: workspaces } = useWorkspaces();
 
   const activeWorkspaceId = location.pathname.match(/\/knowledge-bases\/(\d+)/)?.[1];
-  const isHome = location.pathname === "/";
 
   return (
     <aside
@@ -31,30 +41,38 @@ export const Sidebar = memo(function Sidebar({ collapsed, onToggle }: SidebarPro
     >
       {/* Logo */}
       <div className="flex items-center gap-2.5 px-3 h-12 border-b border-border flex-shrink-0">
-        <Database className="w-6 h-6 text-primary flex-shrink-0" />
+        <Sparkles className="w-6 h-6 text-primary flex-shrink-0" />
         {!collapsed && (
-          <span className="font-bold text-primary text-base truncate">NexusRAG</span>
+          <span className="font-bold text-primary text-base truncate">JobNexus</span>
         )}
       </div>
 
       {/* Navigation */}
       <nav className="flex-shrink-0 px-2 pt-3 space-y-0.5">
-        <button
-          onClick={() => navigate("/")}
-          className={cn(
-            "w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm transition-colors",
-            isHome && !activeWorkspaceId
-              ? "bg-primary/10 text-primary font-medium"
-              : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
-          )}
-          title={collapsed ? "Knowledge Bases" : undefined}
-        >
-          <Database className="w-4 h-4 flex-shrink-0" />
-          {!collapsed && <span className="truncate">Knowledge Bases</span>}
-        </button>
+        {NAV_ITEMS.map((item) => {
+          const isActive = item.exact
+            ? location.pathname === item.path
+            : location.pathname.startsWith(item.path);
+          return (
+            <button
+              key={item.path}
+              onClick={() => navigate(item.path)}
+              className={cn(
+                "w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-sm transition-colors",
+                isActive
+                  ? "bg-primary/10 text-primary font-medium"
+                  : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+              )}
+              title={collapsed ? item.label : undefined}
+            >
+              <item.icon className="w-4 h-4 flex-shrink-0" />
+              {!collapsed && <span className="truncate">{item.label}</span>}
+            </button>
+          );
+        })}
       </nav>
 
-      {/* Scrollable workspace list */}
+      {/* Scrollable workspace list (for chat/legacy) */}
       <div className="flex-1 overflow-y-auto min-h-0">
         {!collapsed && workspaces && workspaces.length > 0 && (
           <div className="mt-4 px-2">
@@ -87,7 +105,6 @@ export const Sidebar = memo(function Sidebar({ collapsed, onToggle }: SidebarPro
           </div>
         )}
 
-        {/* Collapsed indicators */}
         {collapsed && (
           <div className="mt-4 px-2 space-y-1">
             {workspaces?.slice(0, 6).map((ws) => {

@@ -10,7 +10,7 @@ ENV_FILE = str(_candidate) if _candidate.exists() else ".env"
 
 class Settings(BaseSettings):
     # App
-    APP_NAME: str = "NexusRAG"
+    APP_NAME: str = "JobNexus"
     DEBUG: bool = False
     API_V1_PREFIX: str = "/api/v1"
 
@@ -63,8 +63,8 @@ class Settings(BaseSettings):
     NEXUSRAG_KG_CHUNK_TOKEN_SIZE: int = 1200
     NEXUSRAG_KG_LANGUAGE: str = "Vietnamese"
     NEXUSRAG_KG_ENTITY_TYPES: list[str] = [
-        "Organization", "Person", "Product", "Location", "Event",
-        "Financial_Metric", "Technology", "Date", "Regulation",
+        "Skill", "JobTitle", "Company", "Industry", "Certification",
+        "University", "Location", "Technology", "Person",
     ]
     NEXUSRAG_DEFAULT_QUERY_MODE: str = "hybrid"
     NEXUSRAG_DOCLING_IMAGES_SCALE: float = 2.0
@@ -77,6 +77,13 @@ class Settings(BaseSettings):
     NEXUSRAG_VECTOR_PREFETCH: int = 20
     NEXUSRAG_RERANKER_TOP_K: int = 8
     NEXUSRAG_MIN_RELEVANCE_SCORE: float = 0.15
+
+    # JobNexus Matching Weights
+    MATCHING_SEMANTIC_WEIGHT: float = 0.50
+    MATCHING_SKILL_WEIGHT: float = 0.25
+    MATCHING_EXPERIENCE_WEIGHT: float = 0.10
+    MATCHING_LOCATION_WEIGHT: float = 0.10
+    MATCHING_SALARY_WEIGHT: float = 0.05
 
     # CORS
     CORS_ORIGINS: list[str] = ["http://localhost:5174", "http://localhost:3000"]

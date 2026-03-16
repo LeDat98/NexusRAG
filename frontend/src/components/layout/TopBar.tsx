@@ -28,11 +28,17 @@ export const TopBar = memo(function TopBar({ actions, className }: TopBarProps) 
   }, []);
 
   const segments: { label: string; active: boolean }[] = [
-    { label: "NexusRAG", active: false },
+    { label: "JobNexus", active: false },
   ];
 
   if (location.pathname === "/") {
-    segments.push({ label: "Knowledge Bases", active: true });
+    segments.push({ label: "Home", active: true });
+  } else if (location.pathname === "/candidate") {
+    segments.push({ label: "Find Jobs", active: true });
+  } else if (location.pathname === "/recruiter") {
+    segments.push({ label: "Find Talent", active: true });
+  } else if (location.pathname === "/chat") {
+    segments.push({ label: "Chat", active: true });
   } else if (location.pathname.startsWith("/knowledge-bases/")) {
     segments.push({ label: "Workspace", active: true });
   }

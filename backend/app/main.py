@@ -1,5 +1,5 @@
 """
-NexusRAG — standalone Knowledge Base + RAG application.
+JobNexus — Job Recommendation Engine powered by NexusRAG pipeline.
 """
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("Starting NexusRAG API...")
+    logger.info("Starting JobNexus API...")
     import os
     auto_create = os.environ.get("AUTO_CREATE_TABLES", "true").lower() == "true"
     if auto_create:
@@ -68,7 +68,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title=settings.APP_NAME,
-    description="NexusRAG — Knowledge Base with semantic search, knowledge graph, and LLM chat",
+    description="JobNexus — Job Recommendation Engine with semantic matching, knowledge graph, and LLM chat",
     version="1.0.0",
     lifespan=lifespan,
     docs_url="/docs",
@@ -114,3 +114,4 @@ app.mount("/static/doc-images", StaticFiles(directory=str(_docling_data)), name=
 
 # Import models so SQLAlchemy registers them
 from app.models import knowledge_base, document, chat_message  # noqa: E402, F401
+from app.models import candidate, job, match  # noqa: E402, F401

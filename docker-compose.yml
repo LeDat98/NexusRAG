@@ -1,4 +1,4 @@
-# NexusRAG — Full Stack (Production)
+# JobNexus — Job Recommendation Engine (fork NexusRAG)
 # Usage: cp .env.example .env && docker compose up -d
 
 services:

@@ -74,11 +74,11 @@ def _get_gemini_tool():
         types.FunctionDeclaration(
             name="search_documents",
             description=(
-                "Search the knowledge base for relevant document sections. "
-                "Use this tool when the user asks about document content, data, or facts. "
+                "Search the knowledge base for relevant job postings, CVs, or document sections. "
+                "Use this tool when the user asks about jobs, candidates, skills, or any data. "
                 "IMPORTANT: Rewrite the user's question as a detailed, specific search query "
                 "to get better retrieval results. "
-                "Do NOT use this tool for greetings, chitchat, or non-document questions."
+                "Do NOT use this tool for greetings, chitchat, or non-job-related questions."
             ),
             parameters={
                 "type": "OBJECT",
@@ -87,8 +87,8 @@ def _get_gemini_tool():
                         "type": "STRING",
                         "description": (
                             "A rewritten, detailed search query based on the user's question. "
-                            "Examples: 'revenue?' → 'total revenue figures and financial performance metrics'. "
-                            "'AI là gì?' → 'định nghĩa trí tuệ nhân tạo, lịch sử và ứng dụng'"
+                            "Examples: 'tìm việc data engineer' → 'data engineer jobs, Python, SQL, ETL pipeline skills'. "
+                            "'AI jobs in HCM' → 'AI machine learning engineer positions Ho Chi Minh City'"
                         ),
                     },
                     "top_k": {
