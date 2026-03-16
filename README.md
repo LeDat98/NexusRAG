@@ -1,467 +1,329 @@
 <div align="center">
 
-# NexusRAG
+# JobNexusRAG
 
-### Hybrid Knowledge Base with Agentic Chat, Citations & Knowledge Graph
+### Job Recommendation Engine built on NexusRAG (Hybrid RAG + Knowledge Graph)  
+**Author:** Dang Huynh Son — forked from NexusRAG by Le Duc Dat
 
 [![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
 [![React](https://img.shields.io/badge/React_19-61DAFB?style=for-the-badge&logo=react&logoColor=black)](https://react.dev)
 [![FastAPI](https://img.shields.io/badge/FastAPI-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
 [![Docker](https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://docker.com)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)](LICENSE)
-[![LinkedIn](https://img.shields.io/badge/LinkedIn-0A66C2?style=for-the-badge&logo=linkedin&logoColor=white)](https://www.linkedin.com/in/leducdat-profile)
 
-**Upload documents. Ask questions. Get cited answers.**
+**Upload CVs and Job Descriptions. Get ranked, explainable matches.**
 
-NexusRAG combines vector search, knowledge graph, and cross-encoder reranking into one seamless RAG pipeline — powered by Gemini, local Ollama, or fully offline sentence-transformers.
+JobNexusRAG is a **two‑sided job recommendation engine** (candidates ↔ jobs) built on top of the original **NexusRAG** pipeline:
 
-[Features](#features) · [Quick Start](#quick-start) · [Model Recommendations](#multi-provider-llm) · [Tech Stack](#tech-stack)
+- Deep parsing of CVs / JDs with **Docling**
+- Hybrid retrieval with **vector search + knowledge graph**
+- **Cross‑encoder reranking** and multi‑factor scoring
+- Streaming **LLM chat assistant** for jobs and skills
+
+[What is JobNexus?](#overview) · [Architecture](#architecture) · [Quick Start](#quick-start) · [API](#api) · [Tech Stack](#tech-stack)
 
 </div>
+
+---
+
+## Overview
+
+### What JobNexus does
+
+JobNexus turns the generic document‑Q&A system NexusRAG into a **job platform engine**:
+
+- **Candidate side**
+  - Upload CVs (PDF/DOCX/TXT/MD)
+  - LLM extracts skills, experience, education, target role
+  - Get **ranked job recommendations** with score breakdowns and skill gap insights
+
+- **Recruiter side**
+  - Create **companies** and **job postings** (structured fields + optional JD file)
+  - LLM extracts required skills, experience level, location, salary range
+  - Get **ranked candidate recommendations** for each job
+
+- **Knowledge graph**
+  - Built with **LightRAG** over CV + JD markdown
+  - Entities: Skill, JobTitle, Company, Industry, Certification, University, Location, Technology, Person
+  - Used to enrich skill matching and provide explainable recommendations
+
+### High‑level architecture
+
+- **Ingestion**
+  - CV / JD file → Docling deep parsing → HybridChunker
+  - LLM structured extraction (skills, experience, education, requirements)
+  - Chunk embeddings stored in **ChromaDB** collections:
+    - `cv_chunks` for candidate chunks
+    - `jd_chunks` for job chunks
+  - Markdown content ingested into **LightRAG** knowledge graph
+
+- **Matching**
+  - Candidate → Jobs:
+    - Query `jd_chunks` using CV summary + skills embedding
+  - Job → Candidates:
+    - Query `cv_chunks` using JD requirements embedding
+  - Cross‑encoder reranking (BAAI/bge‑reranker‑v2‑m3)
+  - Multi‑factor scoring:
+    - Semantic similarity
+    - Skill match
+    - Experience fit
+    - Location fit
+    - Salary overlap
+
+- **Frontend**
+  - **Candidate Dashboard**: manage profile, upload/process CV, view job matches
+  - **Recruiter Dashboard**: manage companies/jobs, view candidate matches
+  - **Chat**: ask questions about jobs, skills, and career paths (reuses NexusRAG chat)
 
 ---
 
 ## Architecture
 
-<div align="center">
+### End‑to‑end flow
 
-![NexusRAG Architecture](showcase/nexusrag_architecture.jpg)
+1. **CV ingestion**
+   - Candidate uploads a CV file
+   - Docling parses and converts to enriched markdown
+   - Gemini (or your configured LLM) extracts:
+     - Skills (technical + soft)
+     - Work experience (company, role, duration, description)
+     - Education (school, degree, field, year)
+     - Target role, years of experience, location
+   - Parsed chunks are embedded with **BAAI/bge‑m3** into `cv_chunks` collection in ChromaDB
+   - Markdown is ingested into **LightRAG** to populate the skills knowledge graph
 
-</div>
+2. **Job ingestion**
+   - Recruiter creates a job posting (structured form) and/or uploads a JD file
+   - Docling parses and converts to markdown (for files)
+   - LLM extracts:
+     - Required skills vs nice‑to‑have skills
+     - Experience level
+     - Location
+     - Salary range (if present)
+   - Parsed chunks are embedded into `jd_chunks` collection in ChromaDB
+   - Markdown is ingested into the same LightRAG knowledge graph
 
-## Showcase
+3. **Candidate → Jobs matching**
+   - Build a query from:
+     - Extracted CV summary
+     - Top skills
+     - Desired role
+   - Embed query and **over‑fetch** top‑K job chunks from `jd_chunks`
+   - Cross‑encoder rerank candidate chunks vs query
+   - Compute structured scores:
+     - Skill match (Jaccard over required skills, optionally expanded via KG)
+     - Experience fit (years vs required, smoothed via sigmoid)
+     - Location fit (same city, remote, or mismatch)
+     - Salary fit (range overlap)
+   - Store and return **MatchResult** entities with explanations and score breakdown
 
-<div align="center">
+4. **Job → Candidates matching**
+   - Build a query from:
+     - Job title
+     - Required skills
+     - JD summary
+   - Embed query and **over‑fetch** top‑K candidate chunks from `cv_chunks`
+   - Cross‑encoder rerank candidate chunks vs query
+   - Compute the same structured scores and persist **MatchResult**
 
-![NexusRAG Demo](showcase/demo_nexus_video.gif)
-
-</div>
-
----
-
-## Beyond Traditional RAG
-
-Most RAG systems follow a simple pipeline: split text → embed → retrieve → generate. NexusRAG goes further at every stage:
-
-| Aspect | Traditional RAG | NexusRAG |
-|---|---|---|
-| **Document Parsing** | Plain text extraction, structure lost | Docling: preserves headings, page boundaries, formulas, layout |
-| **Images & Tables** | Ignored entirely | Extracted, captioned by vision LLM, embedded as searchable vectors |
-| **Chunking** | Fixed-size splits, breaks mid-sentence | Hybrid semantic + structural chunking (respects headings, tables) |
-| **Embeddings** | Single model for everything | Dual-model: BAAI/bge-m3 (1024d, search) + KG embedding (Gemini 3072d / Ollama / sentence-transformers) |
-| **Retrieval** | Vector similarity only | 3-way parallel: Vector over-fetch + KG entity lookup + Cross-encoder rerank |
-| **Knowledge** | No entity awareness | LightRAG graph: entity extraction, relationship mapping, multi-hop traversal |
-| **Context** | Raw chunks dumped to LLM | Structured assembly: KG insights → cited chunks → related images/tables |
-| **Citations** | None or manual | Auto-generated 4-char IDs with page number and heading path |
-| **Page awareness** | Lost after chunking | Preserved end-to-end: chunk → citation → document viewer navigation |
+5. **Knowledge graph**
+   - LightRAG runs asynchronously over the combined CV + JD markdown
+   - Exposes:
+     - `get_entities` / `get_relationships` / `get_graph_data`
+     - `get_relevant_context(question)` for KG‑only context injection
+   - Used to:
+     - Expand skills (e.g. Docker ↔ Kubernetes)
+     - Provide explainable “related skills” in match explanations
 
 ---
 
 ## Features
 
-<details>
-<summary><b>Deep Document Parsing (Docling)</b></summary>
+### Candidate experience
 
-NexusRAG uses [Docling](https://github.com/docling-project/docling) for structural document understanding — not just text extraction:
+- **Candidate profiles**
+  - Name, email, phone, location
+  - Desired role, desired salary range
+  - Total years of experience, education level
 
-- **Structural preservation** — Heading hierarchy (`H1 > H2 > H3`), page boundaries, paragraph grouping
-- **Formula enrichment** — LaTeX math notation preserved during conversion
-- **Multi-format** — PDF, DOCX, PPTX, HTML, TXT with consistent output
-- **Hybrid chunking** — `HybridChunker(max_tokens=512, merge_peers=True)` respects semantic AND structural boundaries — never splits mid-heading or mid-table
-- **Page-aware metadata** — Every chunk carries its page number, heading path, and references to images/tables on the same page
+- **CV management**
+  - Upload multiple CV versions per candidate
+  - Status tracking: `pending → parsing → indexing → indexed / failed`
+  - Extracted skills and summary visible in the UI
 
-</details>
+- **Job recommendations**
+  - Ranked list of jobs with:
+    - Overall match score (%)
+    - Breakdown: semantic / skills / experience / location / salary
+    - Matched and missing skills badges
+  - Click to expand for a detailed score bar visualization
 
-<details open>
-<summary><b>Hybrid Retrieval Pipeline</b></summary>
+### Recruiter experience
 
-| Stage | Technology | Details |
-|---|---|---|
-| **Vector Embedding** | BAAI/bge-m3 | 1024-dim multilingual bi-encoder (100+ languages) |
-| **KG Embedding** | Gemini / Ollama / sentence-transformers | Configurable: Gemini (3072d), Ollama, or local sentence-transformers (e.g. bge-m3 1024d) |
-| **Vector Search** | ChromaDB | Cosine similarity, over-fetch top-20 candidates |
-| **Knowledge Graph** | LightRAG | Entity/relationship extraction, keyword-to-entity matching |
-| **Reranking** | BAAI/bge-reranker-v2-m3 | Cross-encoder joint scoring — encodes (query, chunk) pairs together |
-| **Generation** | Gemini / Ollama | Agentic streaming chat with function calling |
+- **Company & job management**
+  - Company profiles (name, industry, location, size, description)
+  - Job postings:
+    - Title, location
+    - Salary min/max
+    - Required and nice‑to‑have skills
+    - Experience level
+    - Optional JD file upload
 
-**Why two embedding models?** Vector search needs speed (local bge-m3, 1024-dim). Knowledge graph extraction needs semantic richness for entity recognition — choose Gemini Embedding (3072-dim, cloud), Ollama, or sentence-transformers (fully local, no API needed). Each model is optimized for its role.
+- **Candidate recommendations**
+  - Ranked list of candidates for each job
+  - Same score breakdown and skill badges
+  - Quick navigation between jobs and their candidate lists
 
-**Retrieval flow:**
-1. **Parallel retrieval** — Vector over-fetch (top-20) + KG entity lookup run simultaneously
-2. **Cross-encoder reranking** — All 20 candidates scored jointly with the query through a transformer (far more precise than cosine similarity alone)
-3. **Filtering** — Keep top-8 above relevance threshold (0.15), with fallback to top-3 if all below
-4. **Media discovery** — Find images and tables on the same pages as retrieved chunks
+### Chat assistant (optional)
 
-</details>
+JobNexus keeps the original NexusRAG **agentic chat**:
 
-<details>
-<summary><b>Visual Document Intelligence</b></summary>
-
-Images and tables are **embedded into chunk vectors** — not stored separately. When Docling extracts an image on page 5, its LLM-generated caption is appended to the text chunks on that page before embedding. This means searching for "revenue chart" finds chunks that contain the chart description, without needing a separate image search index.
-
-**Image Pipeline**
-1. Docling extracts images from PDF/DOCX/PPTX (up to 50 per document, 2x resolution)
-2. Vision LLM (Gemini Vision or Ollama multimodal) generates captions: specific numbers, labels, trends
-3. Captions appended to page chunks: `[Image on page 5]: Graph showing 12% revenue growth YoY`
-4. Chunk is embedded → **image becomes vector-searchable** through its description
-5. During retrieval, images on matched pages are surfaced as `[IMG-p4f2]` references
-
-**Table Pipeline**
-1. Docling exports tables as structured Markdown (preserving rows, columns, dimensions)
-2. Text LLM summarizes each table: purpose, key columns, notable values (max 500 chars)
-3. Summaries appended to page chunks: `[Table on page 5 (3x4)]: Annual sales by region`
-4. Table summaries injected back into document Markdown as blockquotes for the document viewer
-
-</details>
-
-<details>
-<summary><b>Citation System</b></summary>
-
-Every answer is grounded in source documents with **4-character citation IDs** (e.g., `[a3z1]`):
-
-- **Inline citations** — Clickable badges embedded directly in the answer text
-- **Source cards** — Each citation shows filename, page number, heading path, and relevance score
-- **Cross-navigation** — Click a citation to jump to the exact section in the document viewer
-- **Image references** — Visual content cited separately as `[IMG-p4f2]` with page tracking
-- **Strict grounding** — The LLM is instructed to only cite sources that directly support claims, max 3 per sentence
-
-</details>
-
-<details>
-<summary><b>Knowledge Graph Visualization</b></summary>
-
-Interactive force-directed graph built from extracted entities and relationships:
-
-- **Entity types** — Person, Organization, Product, Location, Event, Technology, Financial Metric, Date, Regulation (configurable)
-- **Force simulation** — Repulsion + spring forces + center gravity with real-time physics
-- **Pan & zoom** — Mouse drag, scroll wheel (0.3x-3x), keyboard reset
-- **Node interaction** — Click to select, hover to highlight connected edges, drag to reposition
-- **Entity scaling** — Node radius proportional to connectivity (degree)
-- **Query modes** — Naive, Local (multi-hop), Global (summary), Hybrid (default)
-- **No extra services** — LightRAG uses file-based storage (NetworkX + NanoVectorDB), zero Docker overhead
-
-</details>
-
-<details>
-<summary><b>Multi-Provider LLM</b></summary>
-
-Switch between cloud and local models with a single environment variable:
-
-#### Gemini (Cloud)
-
-| Model | Best For | Thinking |
-|---|---|---|
-| `gemini-2.5-flash` | General chat, fast responses | Budget-based (auto) |
-| `gemini-3.1-flash-lite` | High throughput, cost-effective **Recommended default**| Level-based: minimal / low / medium / high |
-
-Extended thinking is automatically configured — Gemini 2.5 uses `thinking_budget_tokens`, Gemini 3.x uses `thinking_level`.
-
-#### Ollama (Local / Self-hosted)
-
-| Model | Parameters | Recommendation |
-|---|---|---|
-| `qwen3.5:9b` | 9B | Good multilingual support, solid tool calling **Recommended default** |
-| `qwen3.5:4b` | 4B | Lightweight, works on 8GB RAM. May miss some tool calls |
-| `gemma3:12b` | 12B | Best balance of quality and speed.  |
-
-> **Tip**: For Knowledge Graph extraction, larger models (12B+) produce significantly better entity/relationship quality. Smaller models (4B) may extract zero entities on complex documents.
-
-**Provider switching** — Comment/uncomment blocks in `.env`:
-
-```bash
-# Cloud (Gemini)
-LLM_PROVIDER=gemini
-GOOGLE_AI_API_KEY=your-key
-
-# Local (Ollama) — uncomment to switch
-# LLM_PROVIDER=ollama
-# OLLAMA_MODEL=gemma3:12b
-```
-
-#### KG Embedding Providers
-
-The Knowledge Graph embedding model is configured separately from the chat LLM:
-
-| Provider | Config | API Required | Dimension |
-|---|---|---|---|
-| **Gemini** (default) | `KG_EMBEDDING_PROVIDER=gemini` | Google AI API key | 3072 |
-| **Ollama** | `KG_EMBEDDING_PROVIDER=ollama` | Ollama server | Varies |
-| **sentence-transformers** | `KG_EMBEDDING_PROVIDER=sentence_transformers` | None (fully local) | Model-dependent (e.g. 1024 for bge-m3) |
-
-```bash
-# Fully local KG embeddings — no API or external service needed
-KG_EMBEDDING_PROVIDER=sentence_transformers
-KG_EMBEDDING_MODEL=BAAI/bge-m3
-KG_EMBEDDING_DIMENSION=1024
-```
-
-> **Tip**: `sentence_transformers` reuses the same `BAAI/bge-m3` model already downloaded for vector search — zero extra disk space, zero API costs, fully offline.
-
-</details>
-
-<details>
-<summary><b>Agentic Streaming Chat</b></summary>
-
-The chat system uses a semi-agentic architecture with real-time SSE streaming:
-
-- **Agent steps** — Visual timeline: Analyzing → Retrieving → Generating → Done (with live timers)
-- **Extended thinking** — Gemini/Ollama reasoning displayed in a collapsible panel
-- **Function calling** — Native (Gemini) or prompt-based (Ollama) `search_documents` tool
-- **Force-search mode** — Pre-retrieval before LLM generation for guaranteed grounded answers
-- **Heartbeat** — 15s SSE keepalive prevents TCP timeout on slow responses
-- **Fallback** — If Ollama produces empty output, auto-triggers search + retry
-- **Chat history** — Persistent per workspace with message ratings (thumbs up/down)
-
-</details>
-
-<details>
-<summary><b>UI / UX</b></summary>
-
-**Theme & Layout**
-- Dark / Light mode with smooth transition, persisted preference
-- Collapsible sidebar with workspace navigation (icon-only mode at narrow width)
-- Responsive grid layouts — mobile to desktop
-
-**Chat Interface**
-- Streaming token rendering with memoized paragraph blocks (only active block re-renders)
-- Inline citation badges with hover tooltips (source file, page, heading path, relevance %)
-- Agent step timeline with spinner animations and elapsed timers
-- Thinking panel — scrollable, auto-follow, collapsible after completion
-- Code blocks with syntax highlighting (Python, JS, SQL, etc.) and one-click copy
-
-**Document Management**
-- Drag-and-drop upload (PDF, DOCX, PPTX, TXT, MD — up to 50MB)
-- Status badges with shimmer animation during processing
-- Per-document chips: pages, chunks, images, tables, file size, processing time
-
-**Search**
-- 4 query modes: Hybrid, Vector, Local KG, Global KG
-- Adjustable result count (1-20) with slider + direct input
-- Document scope filtering (multi-select)
-- Relevance score bars with color coding (green / amber / red)
-
-**Analytics Dashboard**
-- Stat cards: documents, indexed, chunks, images, entities, relationships
-- Entity type distribution bar with animated widths
-- Top entities ranked by connectivity
-- Per-document chunk breakdown chart
-
-**Micro-interactions**
-- Framer Motion animations throughout (staggered entrances, layout transitions)
-- Loading skeletons, toast notifications, empty state illustrations
-- Keyboard shortcuts: `/` to focus search, `Enter` to send, `Escape` to cancel
-
-</details>
-
-<details>
-<summary><b>Workspace System</b></summary>
-
-- Multiple isolated knowledge bases, each with its own documents, ChromaDB collection, and KG
-- Custom system prompt per workspace (override default Q&A behavior)
-- Independent chat history with message persistence and ratings
-
-</details>
+- SSE streaming with agent steps (“Analyzing → Retrieving → Generating → Done”)
+- Function calling backed by the hybrid retriever
+- Used for:
+  - Asking about required skills for a role
+  - Exploring skill gaps
+  - Explaining why a job or candidate is a good fit
 
 ---
 
-## Evaluation
+## Data model
 
-NexusRAG was evaluated using two complementary methods: **16 hand-crafted tests** (rule-based metrics) and **30 RAGAS synthetic tests** (LLM-as-judge). Test corpus: TechVina Annual Report 2025 (Vietnamese, 26 chunks) + DeepSeek-V3.2 Technical Paper (English, 57 chunks).
+### Core entities (backend models)
 
-<details open>
-<summary><b>Phase 1 — Hand-crafted Tests (Rule-based)</b></summary>
+- `Candidate`
+  - Basic profile details + preferences
+  - One‑to‑many with `CandidateCV`
 
-<div align="center">
+- `CandidateCV`
+  - File metadata (name, size, type)
+  - Parsing/indexing status
+  - Extracted skills, experience, education, summary
+  - Chunk and page counts
 
-![Phase 1 Evaluation](showcase/eval_phase1.png)
+- `Company`
+  - Name, industry, location, size, description
+  - One‑to‑many with `JobPosting`
 
-</div>
+- `JobPosting`
+  - Company reference
+  - Title, description text, location
+  - Salary range
+  - Required and nice‑to‑have skills
+  - Experience requirement
+  - Optional JD file metadata
+  - Chunk count and processing time
 
-16 tests across 6 categories using 8 rule-based metrics (keyword coverage, refusal accuracy, citation format, language match, etc.) — no LLM judge involved.
-
-| Category | Pass Rate | Avg Score |
-|---|---|---|
-| Fact Extraction (VI + EN) | 5/5 | 0.93 |
-| Table Data | 2/3 | 0.83 |
-| Cross-Document Reasoning | 2/2 | 0.89 |
-| Anti-Hallucination | 3/3 | 1.00 |
-| Multi-turn History | 2/2 | 0.87 |
-| Citation Accuracy | 1/1 | 0.85 |
-| **Overall** | **15/16** | **0.89 — EXCELLENT** |
-
-</details>
-
-<details open>
-<summary><b>Phase 3 — RAGAS Synthetic Tests (LLM Judge)</b></summary>
-
-<div align="center">
-
-![RAGAS Model Comparison](showcase/eval_ragas_comparison.png)
-
-</div>
-
-30 auto-generated Q&A pairs evaluated by Gemini 2.0 Flash as RAGAS judge. Same questions tested on both models:
-
-| Metric | gemma3:12b (local) | gemini-2.5-flash (cloud) | Winner |
-|---|---|---|---|
-| **Overall score** | 0.832 | **0.846** | Gemini |
-| **Pass rate** | 25/30 (83%) | **26/30 (87%)** | Gemini |
-| Faithfulness | 0.749 | **0.812** | Gemini (+0.063) |
-| Factual correctness | **0.773** | 0.749 | gemma3 (+0.024) |
-| Context recall | 0.833 | 0.833 | Tie |
-| Table extraction | 0.697 | **0.905** | Gemini (+0.208) |
-| Avg latency | **3076ms** | 3283ms | gemma3 (-207ms) |
-
-</details>
-
-<details>
-<summary><b>Strengths & Known Limitations</b></summary>
-
-| Aspect | Status | Detail |
-|---|---|---|
-| Anti-hallucination | :green_circle: Strong | Perfect refusal on out-of-scope questions |
-| Citation format | :green_circle: Strong | 100% correct format across all tests |
-| Cross-doc reasoning | :green_circle: Strong | Successfully synthesizes across multiple sources |
-| Table parsing | :yellow_circle: Model-dependent | gemma3 fails complex tables; Gemini handles well |
-| Language consistency | :yellow_circle: Model-dependent | gemma3 occasionally responds in wrong language |
-| Retrieval coverage | :red_circle: Weak | 5 cases with context_recall = 0 (specific facts missed by retrieval) |
-| Faithfulness | :red_circle: Weak | 4 FAIL cases — LLM adds unsupported details when elaborating |
-
-> Full evaluation methodology and per-sample results: [`rag_evaluation_report.md`](showcase/rag_evaluation_report.md)
-
-</details>
-
-<details>
-<summary><b>Planned Evaluation</b></summary>
-
-Upcoming model benchmarks on the same 30 RAGAS test suite:
-
-| Model | Type | Status |
-|---|---|---|
-| gemma3:12b | Local (Ollama) | :white_check_mark: Done |
-| gemini-2.5-flash | Cloud (Google AI) | :white_check_mark: Done |
-| qwen3.5:4b | Local (Ollama) | :hourglass: Planned |
-| qwen3.5:9b | Local (Ollama) | :hourglass: Planned |
-| gemini-3.1-flash-lite | Cloud (Google AI) | :hourglass: Planned |
-
-Goal: compare cost-efficiency (local 4B/9B) vs cloud quality across faithfulness, table extraction, and multilingual consistency.
-
-</details>
-
----
-
-## Tech Stack
-
-<details>
-<summary><b>Backend</b></summary>
-
-| Technology | Purpose |
-|---|---|
-| **FastAPI** | Async web framework with SSE streaming |
-| **SQLAlchemy 2.0** | Async ORM with PostgreSQL (asyncpg) |
-| **ChromaDB** | Vector store — cosine similarity, per-workspace collections |
-| **LightRAG** | Knowledge graph — entity extraction, multi-hop queries |
-| **Docling** | Document parsing — PDF, DOCX, PPTX, HTML with structural extraction |
-| **sentence-transformers** | BAAI/bge-m3 embeddings + BAAI/bge-reranker-v2-m3 reranking |
-| **google-genai** | Gemini API — chat, vision, function calling, extended thinking |
-| **ollama** | Local LLM — tool calling via prompt tags, multimodal support |
-
-</details>
-
-<details>
-<summary><b>Frontend</b></summary>
-
-| Technology | Purpose |
-|---|---|
-| **React 19** + **TypeScript 5.9** | UI framework with strict typing |
-| **Vite 7** | Dev server and production bundler |
-| **TailwindCSS 4** | Utility-first styling with dark / light theme |
-| **Zustand 5** | Lightweight state management |
-| **React Query 5** | Async data fetching, caching, and mutations |
-| **Framer Motion 12** | Layout animations, transitions, staggered entrances |
-| **react-markdown** + **KaTeX** | Rich markdown with LaTeX math rendering |
-| **Lucide React** | Icon library |
-
-</details>
-
-<details>
-<summary><b>Infrastructure</b></summary>
-
-| Technology | Purpose |
-|---|---|
-| **PostgreSQL 15** | Document metadata, chat history, workspace config |
-| **ChromaDB** | Vector embeddings (HTTP client, containerized) |
-| **LightRAG** | File-based KG (NetworkX + NanoVectorDB — no extra services) |
-| **Docker Compose** | Full-stack deployment (4 containers) |
-| **nginx** | Production frontend serving + API/SSE reverse proxy |
-
-</details>
+- `MatchResult`
+  - Candidate ↔ Job pair
+  - Overall score
+  - `semantic_score`, `skill_match_score`, `experience_score`,
+    `location_score`, `salary_score`
+  - Matched / missing skills
+  - Free‑text explanation
 
 ---
 
 ## Quick Start
 
-### Option A: Docker (Full Stack)
+JobNexusRAG reuses the original NexusRAG tooling and Docker setup. You can run it either with Docker (recommended) or in local dev mode.
+
+### Option A: Docker (Full stack)
 
 ```bash
-git clone https://github.com/LeDat98/NexusRAG.git
-cd NexusRAG
-cp .env.example .env
+git clone https://github.com/huynhsown/JobNexusRAG.git
+cd JobNexusRAG
+copy .env.example .env        # Windows
+# or: cp .env.example .env    # Linux / macOS
+
 # Edit .env — set GOOGLE_AI_API_KEY (or switch to Ollama)
-docker compose up -d
+docker compose up --build
 ```
 
-First build takes ~5-10 minutes (downloads ML models ~2.5GB). Open http://localhost:5174
+First build can take several minutes (downloads ML models ~2.5 GB).
 
-### Option B: Local Development
+- Backend: `http://localhost:8080`
+- Frontend: `http://localhost:5174`
+
+### Option B: Local development
+
+You can also run backend and frontend separately without Docker.
+
+#### 1. Backend (FastAPI)
 
 ```bash
-git clone https://github.com/LeDat98/NexusRAG.git
-cd NexusRAG
-./setup.sh
-```
+cd backend
+py -m venv .venv
+.venv\Scripts\activate          # Windows
+# source .venv/bin/activate    # Linux / macOS
 
-The script checks prerequisites, creates venv, installs deps, starts PostgreSQL + ChromaDB, and optionally downloads ML models.
+pip install -r requirements.txt
+``+
+
+Make sure:
+
+- PostgreSQL is running on `localhost:5433` (or adjust `DATABASE_URL` in `.env`)
+- ChromaDB is running on `localhost:8002` (or adjust `CHROMA_HOST` / `CHROMA_PORT`)
+
+Run the backend:
 
 ```bash
-# Terminal 1 — Backend (port 8080)
-./run_bk.sh
-
-# Terminal 2 — Frontend (port 5174)
-./run_fe.sh
+uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload
 ```
 
-Open http://localhost:5174
+#### 2. Frontend (React/Vite)
 
-<details>
-<summary><b>System Requirements</b></summary>
+```bash
+cd frontend
+npm install
+npm run dev -- --host 0.0.0.0 --port 5174
+```
 
-| Resource | Minimum | Recommended |
-|---|---|---|
-| RAM | 4 GB | 8 GB+ |
-| Disk | 5 GB | 10 GB+ |
-| Python | 3.10+ | 3.11+ |
-| Node.js | 18+ | 22 LTS |
-| Docker | 20+ | Latest |
-
-</details>
+Open `http://localhost:5174` in your browser.
 
 ---
 
-<details>
-<summary><h2>Configuration</h2></summary>
+## Using JobNexus
 
-Copy `.env.example` and configure:
+### Candidate flow (Find Jobs)
+
+1. Open the app: `http://localhost:5174`
+2. Click **“Find Jobs”** on the home page
+3. In the **Candidate Dashboard**:
+   - Create a new candidate profile (name, basic info)
+   - Upload a CV file (PDF/DOCX/TXT/MD)
+   - Click **Process** to parse + extract + index the CV
+   - After status is `indexed`, click **“Find Matching Jobs”**
+4. Inspect results:
+   - Overall match score
+   - Score breakdown (semantic / skills / experience / location / salary)
+   - Matched / missing skills badges
+
+### Recruiter flow (Find Talent)
+
+1. Click **“Find Talent”** on the home page
+2. In the **Recruiter Dashboard**:
+   - Create a company (if not already created)
+   - Create a job posting with title, location, skills and optional description
+   - (Optional) Upload a JD file and click **Process** to parse + index
+   - Click **“Find Matching Candidates”**
+3. Inspect candidate matches similarly to the candidate view.
+
+---
+
+## Configuration
+
+Copy `.env.example` and adjust values:
 
 ```bash
-cp .env.example .env
+cp .env.example .env    # or use `copy` on Windows
 ```
 
 ### Required
 
 | Variable | Description |
 |---|---|
-| `GOOGLE_AI_API_KEY` | Google AI API key (required for Gemini provider) |
+| `GOOGLE_AI_API_KEY` | Google AI API key (required if `LLM_PROVIDER=gemini`) |
 
 ### LLM
 
@@ -474,85 +336,142 @@ cp .env.example .env
 | `OLLAMA_HOST` | `http://localhost:11434` | Ollama server URL |
 | `OLLAMA_MODEL` | `gemma3:12b` | Ollama model name |
 
-### KG Embedding
+### KG embedding
 
 | Variable | Default | Description |
 |---|---|---|
 | `KG_EMBEDDING_PROVIDER` | `gemini` | `gemini`, `ollama`, or `sentence_transformers` |
-| `KG_EMBEDDING_MODEL` | `text-embedding-004` | Model name (provider-specific) |
+| `KG_EMBEDDING_MODEL` | `gemini-embedding-001` | Model name (provider‑specific) |
 | `KG_EMBEDDING_DIMENSION` | `3072` | Embedding dimension (must match model) |
 
-### RAG Pipeline
+### RAG + matching pipeline
 
 | Variable | Default | Description |
 |---|---|---|
-| `NEXUSRAG_EMBEDDING_MODEL` | `BAAI/bge-m3` | Embedding model (1024-dim) |
-| `NEXUSRAG_RERANKER_MODEL` | `BAAI/bge-reranker-v2-m3` | Cross-encoder reranker |
-| `NEXUSRAG_VECTOR_PREFETCH` | `20` | Candidates before reranking |
+| `NEXUSRAG_EMBEDDING_MODEL` | `BAAI/bge-m3` | Text embedding model (1024‑dim) |
+| `NEXUSRAG_RERANKER_MODEL` | `BAAI/bge-reranker-v2-m3` | Cross‑encoder reranker |
+| `NEXUSRAG_VECTOR_PREFETCH` | `20` | Candidates over‑fetched before reranking |
 | `NEXUSRAG_RERANKER_TOP_K` | `8` | Final results after reranking |
 | `NEXUSRAG_ENABLE_KG` | `true` | Enable knowledge graph extraction |
 | `NEXUSRAG_ENABLE_IMAGE_EXTRACTION` | `true` | Extract images from documents |
-| `NEXUSRAG_ENABLE_IMAGE_CAPTIONING` | `true` | LLM-caption images for search |
-| `NEXUSRAG_KG_LANGUAGE` | `Vietnamese` | KG extraction language |
+| `NEXUSRAG_ENABLE_IMAGE_CAPTIONING` | `true` | Caption images via LLM for search |
+| `NEXUSRAG_KG_LANGUAGE` | `Vietnamese` | KG extraction language (can be `English` or multilingual) |
 
-</details>
+### Matching weights
 
----
+JobNexus exposes weights for each score component:
 
-## Roadmap
+| Variable | Default | Description |
+|---|---|---|
+| `MATCHING_SEMANTIC_WEIGHT` | `0.50` | Weight for semantic similarity |
+| `MATCHING_SKILL_WEIGHT` | `0.25` | Weight for skill match |
+| `MATCHING_EXPERIENCE_WEIGHT` | `0.10` | Weight for experience fit |
+| `MATCHING_LOCATION_WEIGHT` | `0.10` | Weight for location fit |
+| `MATCHING_SALARY_WEIGHT` | `0.05` | Weight for salary fit |
 
-- [ ] **Multimodal Retrieval** — Integrate Gemini Embedding 2 (multimodal) for audio and video input retrieval — ask questions about podcasts, lectures, or video content directly
+You can tune these in `.env` to emphasize different aspects.
 
 ---
 
 ## API
 
-All endpoints prefixed with `/api/v1`. Interactive docs at http://localhost:8080/docs
+All endpoints are prefixed with `/api/v1`. Interactive docs: `http://localhost:8080/docs`.
 
-<details>
-<summary><b>Workspaces</b></summary>
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/workspaces` | List all workspaces |
-| `POST` | `/workspaces` | Create workspace |
-| `PUT` | `/workspaces/{id}` | Update workspace |
-| `DELETE` | `/workspaces/{id}` | Delete workspace + all data |
-
-</details>
-
-<details>
-<summary><b>Documents</b></summary>
+### Candidates
 
 | Method | Endpoint | Description |
 |---|---|---|
-| `POST` | `/documents/upload/{workspace_id}` | Upload file |
-| `GET` | `/documents/{id}/markdown` | Get parsed content |
-| `GET` | `/documents/{id}/images` | List extracted images |
-| `DELETE` | `/documents/{id}` | Delete document |
+| `GET` | `/candidates` | List all candidates |
+| `POST` | `/candidates` | Create a candidate profile |
+| `GET` | `/candidates/{id}` | Get candidate with CVs and extracted data |
+| `PUT` | `/candidates/{id}` | Update candidate profile |
+| `DELETE` | `/candidates/{id}` | Delete candidate + CVs + chunks |
+| `POST` | `/candidates/{id}/upload-cv` | Upload a CV file |
+| `POST` | `/candidates/{id}/process/{cv_id}` | Trigger CV processing |
+| `GET` | `/candidates/{id}/recommendations` | Get job recommendations for a candidate |
 
-</details>
-
-<details>
-<summary><b>RAG — Search, Chat, Analytics</b></summary>
+### Jobs & companies
 
 | Method | Endpoint | Description |
 |---|---|---|
-| `POST` | `/rag/query/{workspace_id}` | Hybrid search |
-| `POST` | `/rag/chat/{workspace_id}/stream` | Agentic streaming chat (SSE) |
-| `GET` | `/rag/chat/{workspace_id}/history` | Chat history |
-| `POST` | `/rag/process/{document_id}` | Process document |
-| `GET` | `/rag/graph/{workspace_id}` | Knowledge graph data |
-| `GET` | `/rag/analytics/{workspace_id}` | Full analytics |
+| `POST` | `/jobs/companies` | Create a company |
+| `GET` | `/jobs/companies` | List companies |
+| `GET` | `/jobs/companies/{company_id}` | Get company details |
+| `POST` | `/jobs` | Create a job posting |
+| `GET` | `/jobs` | List jobs (optional filters) |
+| `GET` | `/jobs/{id}` | Get job details (with company) |
+| `PUT` | `/jobs/{id}` | Update job posting |
+| `DELETE` | `/jobs/{id}` | Delete job + chunks |
+| `POST` | `/jobs/{id}/upload-jd` | Upload a JD file for a job |
+| `POST` | `/jobs/{id}/process` | Trigger JD processing |
+| `GET` | `/jobs/{id}/candidates` | Get candidate recommendations for a job |
 
-</details>
+### Matching
+
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/match/candidate-to-jobs/{candidate_id}` | Explicitly match candidate → jobs |
+| `POST` | `/match/job-to-candidates/{job_id}` | Explicitly match job → candidates |
+| `GET` | `/match/explain/{match_id}` | Get detailed explanation for a match |
+| `GET` | `/match/history/{candidate_id}` | Get all past matches for a candidate |
+
+### Legacy NexusRAG endpoints
+
+For backward compatibility and chat/analytics functionality, the original NexusRAG endpoints are still available:
+
+- `/workspaces`, `/documents`, `/rag/query`, `/rag/chat/{workspace_id}/stream`, `/rag/graph`, `/rag/analytics`, etc.
+
+---
+
+## Tech Stack
+
+### Backend
+
+| Technology | Purpose |
+|---|---|
+| **FastAPI** | Async web framework with SSE streaming |
+| **SQLAlchemy 2.0** | Async ORM with PostgreSQL (asyncpg) |
+| **ChromaDB** | Vector store for CV and JD chunks (`cv_chunks`, `jd_chunks`) |
+| **LightRAG** | Knowledge graph (file‑based, per‑workspace) |
+| **Docling** | Deep document parsing for CVs and JDs |
+| **sentence-transformers** | BAAI/bge‑m3 embeddings + BAAI/bge‑reranker‑v2‑m3 reranking |
+| **google‑genai** | Gemini API (chat, extraction, KG embeddings) |
+| **ollama** | Local LLM provider (optional) |
+
+### Frontend
+
+| Technology | Purpose |
+|---|---|
+| **React 19** + **TypeScript 5.9** | UI with strict typing |
+| **Vite 7** | Dev server and bundler |
+| **TailwindCSS 4** | Styling with dark/light themes |
+| **Zustand 5** | Local state management (dashboards, layout) |
+| **React Query 5** | Data fetching and caching |
+| **Framer Motion 12** | Animations and layout transitions |
+| **Lucide React** | Icon set |
+
+### Infrastructure
+
+| Technology | Purpose |
+|---|---|
+| **PostgreSQL 15** | Relational data (candidates, jobs, matches, chat) |
+| **ChromaDB** | Vector embeddings (HTTP client, containerized) |
+| **LightRAG** | File‑based KG (NetworkX + NanoVectorDB — no extra services) |
+| **Docker Compose** | Full‑stack orchestration (Postgres, ChromaDB, backend, frontend) |
+| **nginx** | Production frontend + reverse proxy |
 
 ---
 
 <div align="center">
 
-⭐ If you find NexusRAG useful, please consider giving it a **star** — it helps others discover the project and motivates continued development!
+If you find JobNexusRAG (or the underlying NexusRAG pipeline) useful, please consider giving the project a ⭐ — it helps others discover it and motivates further development.
 
-MIT License &copy; 2026 Le Duc Dat
+MIT License
+
+Copyright &copy; 2026 Dang Huynh Son
+Copyright &copy; 2026 Le Duc Dat
+
+This project is forked and modified from NexusRAG by Le Duc Dat.
 
 </div>
+
