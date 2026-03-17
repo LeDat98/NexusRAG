@@ -20,9 +20,9 @@ interface SidebarProps {
 
 const NAV_ITEMS = [
   { path: "/", label: "Home", icon: Sparkles, exact: true },
-  { path: "/candidate", label: "Find Jobs", icon: Briefcase },
-  { path: "/recruiter", label: "Find Talent", icon: Users },
-  { path: "/chat", label: "Chat", icon: MessageSquare },
+  { path: "/candidate", label: "Find Jobs", icon: Briefcase, exact: false },
+  { path: "/recruiter", label: "Find Talent", icon: Users, exact: false },
+  { path: "/chat", label: "Chat", icon: MessageSquare, exact: false },
 ] as const;
 
 export const Sidebar = memo(function Sidebar({ collapsed, onToggle }: SidebarProps) {

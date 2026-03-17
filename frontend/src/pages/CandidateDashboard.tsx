@@ -14,7 +14,7 @@ import {
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
-import type { Candidate, CandidateCV, MatchResult, JobPosting } from "@/types";
+import type { Candidate, CandidateCV, MatchResult } from "@/types";
 
 // ---------------------------------------------------------------------------
 // API hooks
