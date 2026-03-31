@@ -80,9 +80,13 @@ class ApiClient {
     URL.revokeObjectURL(url);
   }
 
-  async uploadFile<T>(path: string, file: File): Promise<T> {
+  async uploadFile<T>(path: string, file: File, customMetadata?: {key: string, value: string}[]): Promise<T> {
     const formData = new FormData();
     formData.append("file", file);
+    
+    if (customMetadata && customMetadata.length > 0) {
+      formData.append("custom_metadata", JSON.stringify(customMetadata));
+    }
 
     const response = await fetch(`${BASE_URL}${path}`, {
       method: "POST",

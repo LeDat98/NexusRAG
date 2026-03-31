@@ -197,8 +197,9 @@ class NexusRAGService:
                         for img in parsed.images
                     }
 
-                    metadatas = [
-                        {
+                    metadatas = []
+                    for c in parsed.chunks:
+                        meta = {
                             "document_id": document_id,
                             "chunk_index": c.chunk_index,
                             "source": c.source_file,
@@ -214,8 +215,9 @@ class NexusRAGService:
                                 _img_url_map.get(iid, "") for iid in c.image_refs
                             ) if c.image_refs else "",
                         }
-                        for c in parsed.chunks
-                    ]
+                        if document.custom_metadata:
+                            meta.update(document.custom_metadata)
+                        metadatas.append(meta)
 
                     self.vector_store.add_documents(
                         ids=ids,
@@ -266,6 +268,7 @@ class NexusRAGService:
         question: str,
         top_k: int = 5,
         document_ids: Optional[list[int]] = None,
+        metadata_filter: dict | None = None,
     ) -> RAGQueryResult:
         """
         Backward-compatible sync query (vector-only).
@@ -273,9 +276,13 @@ class NexusRAGService:
         """
         query_embedding = self.embedder.embed_query(question)
 
-        where = None
+        # Merge metadata_filter and document_ids
+        where = metadata_filter.copy() if metadata_filter else {}
         if document_ids:
-            where = {"document_id": {"$in": document_ids}}
+            where["document_id"] = {"$in": document_ids}
+            
+        if not where:
+            where = None
 
         results = self.vector_store.query(
             query_embedding=query_embedding,
@@ -323,6 +330,7 @@ class NexusRAGService:
         document_ids: Optional[list[int]] = None,
         mode: str = "hybrid",
         include_images: bool = True,
+        metadata_filter: dict | None = None,
     ) -> DeepRetrievalResult:
         """
         Full async hybrid retrieval with KG + vector + images + citations.
@@ -333,6 +341,7 @@ class NexusRAGService:
             top_k=top_k,
             document_ids=document_ids,
             include_images=include_images,
+            metadata_filter=metadata_filter,
         )
 
     # ------------------------------------------------------------------

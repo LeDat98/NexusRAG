@@ -28,46 +28,32 @@ async def lifespan(app: FastAPI):
     auto_create = os.environ.get("AUTO_CREATE_TABLES", "true").lower() == "true"
     if auto_create:
         async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-            # Auto-migrate: add new columns if missing
-            await conn.execute(
-                text("ALTER TABLE knowledge_bases ADD COLUMN IF NOT EXISTS system_prompt TEXT")
+            # Check if tables already exist (e.g., alembic_version)
+            result = await conn.execute(
+                text("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'alembic_version');")
             )
-            # Ensure chat_messages table + indexes exist (idempotent)
-            await conn.execute(text("""
-                CREATE TABLE IF NOT EXISTS chat_messages (
-                    id SERIAL PRIMARY KEY,
-                    workspace_id INTEGER NOT NULL REFERENCES knowledge_bases(id) ON DELETE CASCADE,
-                    message_id VARCHAR(50) NOT NULL,
-                    role VARCHAR(20) NOT NULL,
-                    content TEXT NOT NULL,
-                    sources JSON,
-                    related_entities JSON,
-                    image_refs JSON,
-                    thinking TEXT,
-                    created_at TIMESTAMP DEFAULT NOW()
-                )
-            """))
-            await conn.execute(text(
-                "CREATE INDEX IF NOT EXISTS ix_chat_messages_workspace_id ON chat_messages(workspace_id)"
-            ))
-            await conn.execute(text(
-                "CREATE INDEX IF NOT EXISTS ix_chat_messages_message_id ON chat_messages(message_id)"
-            ))
-            await conn.execute(text(
-                "ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS ratings JSON"
-            ))
-            await conn.execute(text(
-                "ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS agent_steps JSON"
-            ))
-            # Auto-migrate: add workspace settings columns
-            await conn.execute(
-                text("ALTER TABLE knowledge_bases ADD COLUMN IF NOT EXISTS kg_language VARCHAR(50)")
-            )
-            await conn.execute(
-                text("ALTER TABLE knowledge_bases ADD COLUMN IF NOT EXISTS kg_entity_types JSON")
-            )
-        logger.info("Database tables created/verified")
+            is_initialized = result.scalar()
+
+            if not is_initialized:
+                schema_path = os.path.join(os.path.dirname(__file__), "schema.sql")
+                if os.path.exists(schema_path):
+                    with open(schema_path, "r", encoding="utf-8") as f:
+                        schema_sql = f.read()
+                    
+                    # Split and execute each statement to avoid asyncpg multi-statement issues
+                    for statement in schema_sql.split(';'):
+                        stmt = statement.strip()
+                        if stmt:
+                            await conn.execute(text(stmt))
+                    logger.info("Database tables created from schema.sql")
+                    
+                    # Stamp the alembic version
+                    await conn.execute(text("INSERT INTO public.alembic_version (version_num) VALUES ('2047460692d0') ON CONFLICT DO NOTHING;"))
+                else:
+                    await conn.run_sync(Base.metadata.create_all)
+                    logger.info("Database tables created/verified (Base.metadata.create_all)")
+            else:
+                logger.info("Database is already initialized.")
 
         # Recover stale processing documents (stuck from previous runs)
         from app.models.document import Document, DocumentStatus

@@ -131,6 +131,18 @@ Images and tables are **embedded into chunk vectors** — not stored separately.
 </details>
 
 <details>
+<summary><b>Custom Document Metadata</b></summary>
+
+Enhance RAG accuracy and organization by attaching custom key-value metadata during document upload:
+
+- **Metadata Filtering** — Perform hybrid search (semantic + metadata filtering) to narrow down the search space and prevent hallucinations.
+- **Flexible Organization** — Tag documents with attributes like `year`, `category`, or `author` without needing separate workspaces.
+- **Optimized Retrieval** — Pre-filtering in ChromaDB reduces processing time and latency during vector search.
+- **Supported Endpoints** — Pass `custom_metadata` (list of key-values) in the upload API, and `metadata_filter` in query/chat APIs.
+
+</details>
+
+<details>
 <summary><b>Citation System</b></summary>
 
 Every answer is grounded in source documents with **4-character citation IDs** (e.g., `[a3z1]`):
@@ -545,7 +557,7 @@ All endpoints prefixed with `/api/v1`. Interactive docs at http://localhost:8080
 
 | Method | Endpoint | Description |
 |---|---|---|
-| `POST` | `/documents/upload/{workspace_id}` | Upload file |
+| `POST` | `/documents/upload/{workspace_id}` | Upload file (supports `custom_metadata`) |
 | `GET` | `/documents/{id}/markdown` | Get parsed content |
 | `GET` | `/documents/{id}/images` | List extracted images |
 | `DELETE` | `/documents/{id}` | Delete document |
@@ -557,8 +569,8 @@ All endpoints prefixed with `/api/v1`. Interactive docs at http://localhost:8080
 
 | Method | Endpoint | Description |
 |---|---|---|
-| `POST` | `/rag/query/{workspace_id}` | Hybrid search |
-| `POST` | `/rag/chat/{workspace_id}/stream` | Agentic streaming chat (SSE) |
+| `POST` | `/rag/query/{workspace_id}` | Hybrid search (supports `metadata_filter`) |
+| `POST` | `/rag/chat/{workspace_id}/stream` | Agentic streaming chat (SSE) (supports `metadata_filter`) |
 | `GET` | `/rag/chat/{workspace_id}/history` | Chat history |
 | `POST` | `/rag/process/{document_id}` | Process document |
 | `GET` | `/rag/graph/{workspace_id}` | Knowledge graph data |

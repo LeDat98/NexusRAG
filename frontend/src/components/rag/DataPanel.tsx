@@ -17,9 +17,10 @@ import { Input } from "@/components/ui/input";
 import { UploadZone } from "./UploadZone";
 import { StatsBar } from "./StatsBar";
 import { DocumentFilters, type FilterStatus } from "./DocumentFilters";
-import { DocumentCard } from "./DocumentCard";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { WorkspaceSettings } from "./WorkspaceSettings";
+import { CustomMetadataInput } from "./CustomMetadataInput";
+import { DocumentCard } from "./DocumentCard";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import type { Document, RAGStats, DocumentStatus, KnowledgeBase, UpdateWorkspace } from "@/types";
@@ -38,7 +39,7 @@ interface DataPanelProps {
   ragStats: RAGStats | undefined;
   selectedDocId: number | null;
   onSelectDoc: (doc: Document) => void;
-  onUpload: (file: File) => void;
+  onUpload: (file: File, customMetadata?: {key: string, value: string}[]) => void;
   isUploading: boolean;
   onDelete: (id: number) => void;
   onProcess: (id: number) => void;
@@ -71,6 +72,13 @@ export const DataPanel = memo(function DataPanel({
   const [editDesc, setEditDesc] = useState("");
   const [batchProcessing, setBatchProcessing] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [customMetadata, setCustomMetadata] = useState<{key: string, value: string}[]>([]);
+
+  const handleUpload = useCallback((file: File) => {
+    const validMeta = customMetadata.filter((m) => m.key.trim() !== "");
+    onUpload(file, validMeta.length > 0 ? validMeta : undefined);
+    // Optional: clear metadata after successful upload? Leaving it for convenience if they upload multiple.
+  }, [customMetadata, onUpload]);
 
   const processingCount = useMemo(
     () => documents?.filter((d) => PROCESSING_STATUSES.has(d.status)).length ?? 0,
@@ -219,9 +227,17 @@ export const DataPanel = memo(function DataPanel({
         )}
       </div>
 
-      {/* Upload zone — always visible, ~20% */}
-      <div className="flex-shrink-0 px-3 pt-2 pb-1" style={{ height: "18%" }}>
-        <UploadZone onUpload={onUpload} isUploading={isUploading} mini />
+      {/* Upload zone header & settings */}
+      <div className="flex-shrink-0 px-3 py-1.5 flex items-center justify-between border-t border-b">
+        <h3 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+          Add Documents
+        </h3>
+        <CustomMetadataInput metadata={customMetadata} onChange={setCustomMetadata} />
+      </div>
+
+      {/* Upload zone — always visible, ~15% */}
+      <div className="flex-shrink-0 px-3 pt-2 pb-1" style={{ height: "15%" }}>
+        <UploadZone onUpload={handleUpload} isUploading={isUploading} mini />
       </div>
 
       {/* Stats bar */}

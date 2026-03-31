@@ -88,8 +88,8 @@ export function WorkspacePage() {
   // Mutations
   // -----------------------------------------------------------------------
   const uploadDoc = useMutation({
-    mutationFn: (file: File) =>
-      api.uploadFile<Document>(`/documents/upload/${workspaceId}`, file),
+    mutationFn: ({ file, customMetadata }: { file: File, customMetadata?: {key: string, value: string}[] }) =>
+      api.uploadFile<Document>(`/documents/upload/${workspaceId}`, file, customMetadata),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["documents", workspaceId] });
       queryClient.invalidateQueries({ queryKey: ["rag-stats", workspaceId] });
@@ -179,7 +179,7 @@ export function WorkspacePage() {
         ragStats={ragStats}
         selectedDocId={selectedDoc?.id ?? null}
         onSelectDoc={handleSelectDoc}
-        onUpload={(f) => uploadDoc.mutate(f)}
+        onUpload={(file, customMetadata) => uploadDoc.mutate({ file, customMetadata })}
         isUploading={uploadDoc.isPending}
         onDelete={(id) => deleteDoc.mutate(id)}
         onProcess={(id) => processDoc.mutate(id)}

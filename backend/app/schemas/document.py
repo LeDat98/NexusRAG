@@ -28,6 +28,7 @@ class DocumentResponse(DocumentBase):
     table_count: int = 0
     parser_version: str | None = None
     processing_time_ms: int = 0
+    custom_metadata: dict | None = None
 
     model_config = {"from_attributes": True}
 

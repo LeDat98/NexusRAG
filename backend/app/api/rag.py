@@ -103,6 +103,7 @@ async def query_documents(
             top_k=request.top_k,
             document_ids=request.document_ids,
             mode=request.mode,
+            metadata_filter=request.metadata_filter,
         )
 
         chunks_response = []

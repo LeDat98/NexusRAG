@@ -123,8 +123,9 @@ class RAGService:
 
                 # Prepare data for vector store
                 ids = [f"doc_{document_id}_chunk_{i}" for i in range(len(chunks))]
-                metadatas = [
-                    {
+                metadatas = []
+                for c in chunks:
+                    meta = {
                         "document_id": document_id,
                         "chunk_index": c.chunk_index,
                         "char_start": c.char_start,
@@ -132,8 +133,9 @@ class RAGService:
                         "source": c.metadata.get("source", ""),
                         "file_type": c.metadata.get("file_type", "")
                     }
-                    for c in chunks
-                ]
+                    if document.custom_metadata:
+                        meta.update(document.custom_metadata)
+                    metadatas.append(meta)
 
                 # Store in vector database
                 logger.info(f"Storing {len(chunks)} chunks in vector store")
@@ -154,6 +156,7 @@ class RAGService:
                 await self.db.commit()
                 logger.warning(f"Document {document_id} produced no chunks (empty content)")
                 return 0
+
 
             # Update document status
             document.status = DocumentStatus.INDEXED
