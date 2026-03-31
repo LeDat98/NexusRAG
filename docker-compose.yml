@@ -59,6 +59,22 @@ services:
       start_period: 30s
     restart: unless-stopped
 
+  mcp-server:
+    build:
+      context: ./mcp-server
+      dockerfile: Dockerfile
+    container_name: nexusrag-mcp-server
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      API_BASE_URL: http://backend:8080/api/v1
+      TRANSPORT: http
+      PORT: "8000"
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+
   frontend:
     build:
       context: .

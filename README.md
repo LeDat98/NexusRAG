@@ -536,7 +536,26 @@ cp .env.example .env
 
 ---
 
+## MCP Server
+
+NexusRAG includes a [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server that exposes its core functionalities:
+- `get_workspace_list`: List all knowledge bases.
+- `get_document_by_id`: Get details for a specific document.
+- `query`: Query indexed documents using semantic search.
+
+### Connecting to the MCP Server
+
+The MCP Server is automatically started by default via `docker-compose up -d` on port `8000` using the Streamable HTTP transport (latest protocol version).
+
+#### Cursor / Claude Desktop
+You can directly add the NexusRAG MCP server to Cursor or Claude as an SSE connection using the URL:
+`http://localhost:8000/mcp`
+*(Note: some clients still label this as an SSE connection, but use the `/mcp` endpoint to connect via Streamable HTTP).*
+
+---
+
 ## API
+
 
 All endpoints prefixed with `/api/v1`. Interactive docs at http://localhost:8080/docs
 
