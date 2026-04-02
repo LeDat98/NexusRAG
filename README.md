@@ -32,8 +32,8 @@ NexusRAG combines vector search, knowledge graph, and cross-encoder reranking in
 ## Showcase
 
 <div align="center">
-
-https://github.com/LeDat98/NexusRAG/raw/main/showcase/demo_nexus_video.mp4
+ 
+https://github.com/user-attachments/assets/fa845fab-dcc3-4a64-86ac-6dda2c073156
 
 </div>
 
