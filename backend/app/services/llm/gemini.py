@@ -249,6 +249,9 @@ class GeminiLLMProvider(LLMProvider):
         """Gemini 2.5+ and 3.x+ models support thinking."""
         return self._major_version >= 2
 
+    def supports_native_tools(self) -> bool:
+        return True
+
 
 class GeminiEmbeddingProvider(EmbeddingProvider):
     """Google Gemini text embedding (``gemini-embedding-001``, 3072-dim)."""

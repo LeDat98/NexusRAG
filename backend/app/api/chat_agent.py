@@ -128,12 +128,22 @@ You have ONE tool: search_documents.  You call it by outputting EXACTLY:
 2. **Your ENTIRE first response to a searchable query must be ONLY the <tool_call> block.**
    No text before it. No text after it. No explanation. Just the tool call.
 
-3. **Rewrite the query** to be specific and detailed.
+3. **NEVER say "the documents do not contain this information" UNLESS you have already
+   called search_documents in THIS turn.** Even if previous context seems sufficient,
+   you MUST search again — previous results may be incomplete.
+
+4. **Rewrite the query** to be specific and detailed.
    "doanh thu" → "doanh thu thuần, tổng doanh thu theo năm, tăng trưởng doanh thu"
    "AI model" → "AI model architecture, performance benchmarks, training details"
 
-4. After receiving search results, answer using ONLY those sources with citations.
+5. After receiving search results, answer using ONLY those sources with citations.
    Format: claim text[source_id]. Example: Doanh thu đạt 4.850 tỷ VNĐ[a3x9].
+
+6. **ALWAYS include relevant rich content from sources:**
+   - Images/Diagrams/Charts: reference as [IMG-xxxx]
+   - Tables: reproduce key data preserving structure
+   - Math formulas: include LaTeX exactly as in sources
+   - Code snippets: include with language tags
 """
 
 OLLAMA_TOOL_REMINDER = (
@@ -146,6 +156,73 @@ OLLAMA_TOOL_REMINDER = (
 # ---------------------------------------------------------------------------
 # Gemini system prompt reinforcement — enforce tool calling for questions
 # ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Ollama native tool calling (Gemma 4, Qwen 3.5, Llama 4, etc.)
+# ---------------------------------------------------------------------------
+
+def _get_ollama_native_tool() -> list[dict]:
+    """Tool definition in OpenAI-compatible format for Ollama native tool calling."""
+    return [{
+        "type": "function",
+        "function": {
+            "name": "search_documents",
+            "description": (
+                "Search the knowledge base for relevant document sections. "
+                "Use this tool when the user asks about document content, data, or facts. "
+                "IMPORTANT: Rewrite the user's question as a detailed, specific search query "
+                "to get better retrieval results. "
+                "Do NOT use this tool for greetings, chitchat, or non-document questions."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": (
+                            "A rewritten, detailed search query based on the user's question. "
+                            "Examples: 'revenue?' -> 'total revenue figures and financial performance metrics'. "
+                            "'AI la gi?' -> 'dinh nghia tri tue nhan tao, lich su va ung dung'"
+                        ),
+                    },
+                    "top_k": {
+                        "type": "integer",
+                        "description": "Number of relevant chunks to retrieve (default: 5, max: 10)",
+                    },
+                },
+                "required": ["query"],
+            },
+        },
+    }]
+
+
+OLLAMA_NATIVE_TOOL_SYSTEM = """\
+
+## Tool Usage (MANDATORY)
+
+You have a tool called `search_documents` that searches the knowledge base.
+
+### ABSOLUTE RULES:
+1. For ALL user questions, requests, factual queries, or analysis — you MUST call \
+`search_documents` FIRST before answering. Your knowledge is UNRELIABLE; only \
+document sources are trustworthy.
+2. Only skip the tool call for simple conversational messages:
+   - Greetings: "hello", "xin chào", "hi", "hey", etc.
+   - Acknowledgements: "cảm ơn", "thank you", "thanks", "ok", etc.
+   - Farewells: "bye", "goodbye", "tạm biệt", etc.
+3. NEVER say "the documents do not contain this information" or similar UNLESS you \
+have already called `search_documents` in THIS turn. Even if previous context \
+seems sufficient, you MUST search again — previous results may be incomplete.
+4. Rewrite the user's query to be specific and detailed for better retrieval.
+5. After receiving search results, answer using ONLY those sources with citations.
+   Format: claim text[source_id]. Example: Doanh thu đạt 4.850 tỷ VNĐ[a3x9].
+6. ALWAYS include relevant rich content from sources in your answer:
+   - **Images/Diagrams/Charts**: Reference as [IMG-xxxx] when sources mention them.
+   - **Tables**: Reproduce key data from tables, preserving structure.
+   - **Math formulas**: Include LaTeX formulas exactly as they appear in sources.
+   - **Code snippets**: Include code blocks with language tags.
+   Do NOT omit these — they are essential parts of the answer.
+"""
 
 GEMINI_TOOL_SYSTEM = """\
 
@@ -163,9 +240,17 @@ contains relevant information, you MUST search again to get fresh, accurate sour
    - Farewells: "bye", "goodbye", "tạm biệt", etc.
 3. NEVER answer a question using information from previous turns without searching. \
 Your previous answers may contain outdated or incomplete information.
-4. NEVER reuse citation IDs from previous answers. Each answer must have its own \
+4. NEVER say "the documents do not contain this information" or similar UNLESS you \
+have already called `search_documents` in THIS turn.
+5. NEVER reuse citation IDs from previous answers. Each answer must have its own \
 fresh sources from a new search.
-5. Rewrite the user's query to be specific and detailed for better retrieval.
+6. Rewrite the user's query to be specific and detailed for better retrieval.
+7. ALWAYS include relevant rich content from sources in your answer:
+   - **Images/Diagrams/Charts**: Reference as [IMG-xxxx] when sources mention them.
+   - **Tables**: Reproduce key data from tables, preserving structure.
+   - **Math formulas**: Include LaTeX formulas exactly as they appear in sources.
+   - **Code snippets**: Include code blocks with language tags.
+   Do NOT omit these — they are essential parts of the answer.
 """
 
 
@@ -426,6 +511,7 @@ async def agent_chat_stream(
     # Tool / prompt setup
     tools = None
     effective_system_prompt = system_prompt
+    is_ollama_native = False  # track for tool result handling
 
     if force_search:
         # ── Force-search mode: pre-search before LLM call ──────────────────
@@ -480,8 +566,13 @@ async def agent_chat_stream(
         tools = [_get_gemini_tool()]
         # Reinforce tool-calling obligation in system prompt for Gemini
         effective_system_prompt = system_prompt + GEMINI_TOOL_SYSTEM
+    elif provider.supports_native_tools():
+        # Ollama with native tool calling (Gemma 4, Qwen 3.5, Llama 4, etc.)
+        is_ollama_native = True
+        tools = _get_ollama_native_tool()
+        effective_system_prompt = system_prompt + "\n\n" + OLLAMA_NATIVE_TOOL_SYSTEM
     else:
-        # Ollama: append mandatory tool prompt to system prompt
+        # Ollama prompt-based fallback (older models without native tool support)
         effective_system_prompt = system_prompt + "\n\n" + OLLAMA_TOOL_SYSTEM
         # Also append a reminder directly to the user message so the model
         # sees it right before generating — reinforces the tool requirement
@@ -506,7 +597,7 @@ async def agent_chat_stream(
             max_tokens=settings.LLM_MAX_OUTPUT_TOKENS,
             system_prompt=effective_system_prompt,
             think=enable_thinking,
-            tools=tools if is_gemini else None,
+            tools=tools if (is_gemini or is_ollama_native) else None,
         ):
             if chunk.type == "thinking":
                 thinking_text += chunk.text
@@ -567,6 +658,9 @@ async def agent_chat_stream(
                     "combining data from MULTIPLE sources.\n"
                     "- TABLE DATA: Sources may contain table data as 'Key, Year = Value' pairs. "
                     "Example: 'ROE, 2023 = 12,8%' means ROE was 12.8% in 2023.\n"
+                    "- RICH CONTENT: Include ALL relevant images [IMG-xxxx], tables, "
+                    "math formulas (LaTeX), diagrams, and code snippets from sources. "
+                    "These are essential — do NOT omit them.\n"
                     "- If no source contains relevant information, say: "
                     "\"Tài liệu không chứa thông tin này.\"\n",
                 ]
@@ -638,8 +732,52 @@ async def agent_chat_stream(
                     # Remove tool-calling instructions since search is done;
                     # keep tools so thinking + tool awareness still works.
                     effective_system_prompt = system_prompt
+                elif is_ollama_native:
+                    # Ollama native: preserve raw assistant tool_call response
+                    # and send tool result via native "tool" role message.
+                    raw_msg = getattr(provider, "last_response_message", None)
+                    if raw_msg:
+                        messages.append(LLMMessage(
+                            role="assistant",
+                            content="",
+                            _raw_provider_content=raw_msg,
+                        ))
+                    else:
+                        messages.append(LLMMessage(
+                            role="assistant",
+                            content=f"[Called search_documents(query=\"{query}\")]",
+                        ))
+
+                    # Send tool result using Ollama's native tool message format
+                    messages.append(LLMMessage(
+                        role="tool",
+                        content="",
+                        _raw_provider_content={
+                            "role": "tool",
+                            "content": tool_result_content,
+                        },
+                    ))
+
+                    # Send images as a separate user message for vision
+                    if img_parts:
+                        img_llm_parts: list[LLMImagePart] = []
+                        img_text = "Referenced document images:\n"
+                        for img_data in img_parts:
+                            img_text += f"[IMG-{img_data['img_ref_id']}] (page {img_data['page_no']})\n"
+                            img_llm_parts.append(LLMImagePart(
+                                data=img_data["inline_data"]["data"],
+                                mime_type=img_data["inline_data"]["mime_type"],
+                            ))
+                        messages.append(LLMMessage(
+                            role="user",
+                            content=img_text,
+                            images=img_llm_parts,
+                        ))
+
+                    # Remove tool-calling instructions; keep tools for awareness.
+                    effective_system_prompt = system_prompt
                 else:
-                    # Ollama: add text-based assistant + user messages
+                    # Ollama prompt-based: add text-based assistant + user messages
                     # to maintain proper user/assistant alternation
                     # (prevents two consecutive user messages which confuses
                     # small models like qwen3.5).
@@ -705,14 +843,21 @@ async def agent_chat_stream(
                 "=== END SOURCES ===\n",
                 "IMPORTANT:\n"
                 "- Read EVERY source above carefully.\n"
+                "- Include ALL relevant images [IMG-xxxx], tables, math formulas, "
+                "and code snippets from sources.\n"
                 "- If no source contains relevant information, say: "
                 "\"Tài liệu không chứa thông tin này.\"\n",
             ]
             fallback_content = "\n".join(fallback_parts)
             fallback_content += f"\n\nNow answer the question: {message}"
 
-            # Remove old tool system prompt, add sources as context
-            fallback_msgs = messages.copy()
+            # Build CLEAN messages for retry — only keep recent history
+            # and the user question with sources.  Drop the tool-calling
+            # prompt that already failed, so the model focuses on answering.
+            fallback_msgs: list[LLMMessage] = []
+            for msg in history[-6:]:
+                role = "user" if msg["role"] == "user" else "assistant"
+                fallback_msgs.append(LLMMessage(role=role, content=msg["content"]))
             fallback_msgs.append(LLMMessage(role="user", content=fallback_content))
 
             yield {"event": "status", "data": {

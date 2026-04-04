@@ -103,6 +103,10 @@ class LLMProvider(ABC):
         """Whether this provider/model supports thinking mode."""
         return False
 
+    def supports_native_tools(self) -> bool:
+        """Whether this provider/model supports native tool calling."""
+        return False
+
 
 class EmbeddingProvider(ABC):
     """Abstract interface for text embedding generation (used by KG)."""

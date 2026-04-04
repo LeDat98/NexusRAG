@@ -57,6 +57,9 @@ services:
       timeout: 5s
       retries: 10
       start_period: 30s
+    # Needed on Linux so Ollama (on host) is reachable at host.docker.internal
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
 
   mcp-server:

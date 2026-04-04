@@ -28,6 +28,8 @@ class OllamaLLMProvider(LLMProvider):
         self._host = host
         self._model = model
         self._thinking_supported: bool | None = None  # lazy probe
+        self._native_tools_supported: bool | None = None  # lazy probe
+        self.last_response_message: dict | None = None  # for native tool call history
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -45,6 +47,12 @@ class OllamaLLMProvider(LLMProvider):
             result.append({"role": "system", "content": system_prompt})
 
         for msg in messages:
+            # Raw Ollama message dict — pass through as-is
+            # (used for native tool call history: assistant w/ tool_calls, tool results)
+            if msg._raw_provider_content is not None:
+                result.append(msg._raw_provider_content)
+                continue
+
             entry: dict = {"role": msg.role, "content": msg.content}
             if msg.images:
                 # Ollama accepts raw bytes in the 'images' field
@@ -103,11 +111,12 @@ class OllamaLLMProvider(LLMProvider):
         use_think = think and self.supports_thinking()
 
         try:
-            response = ollama.chat(
+            client = ollama.Client(host=self._host)
+            response = client.chat(
                 model=self._model,
                 messages=ollama_msgs,
                 options={"temperature": temperature, "num_predict": max_tokens},
-                think=use_think,
+                think=True if use_think else None,
             )
             result = self._extract_content(response, keep_thinking=use_think)
             content = result.content if isinstance(result, LLMResult) else result
@@ -145,7 +154,7 @@ class OllamaLLMProvider(LLMProvider):
                 model=self._model,
                 messages=ollama_msgs,
                 options={"temperature": temperature, "num_predict": max_tokens},
-                think=use_think,
+                think=True if use_think else None,
             )
             result = self._extract_content(response, keep_thinking=use_think)
             content = result.content if isinstance(result, LLMResult) else result
@@ -174,8 +183,9 @@ class OllamaLLMProvider(LLMProvider):
     ) -> AsyncGenerator[StreamChunk, None]:
         """Streaming generation via Ollama's async stream API.
 
-        Tool calls are detected via <tool_call>...</tool_call> tags in output.
-        Uses a state machine to buffer tool call JSON before yielding.
+        When *tools* is provided, native tool calling is used and tool calls
+        arrive via ``chunk.message.tool_calls``.  Otherwise, prompt-based
+        ``<tool_call>`` XML tags are detected via a state machine.
         """
         import ollama
 
@@ -184,99 +194,140 @@ class OllamaLLMProvider(LLMProvider):
 
         try:
             client = ollama.AsyncClient(host=self._host)
-            stream = await client.chat(
+
+            kwargs: dict = dict(
                 model=self._model,
                 messages=ollama_msgs,
                 options={"temperature": temperature, "num_predict": max_tokens},
                 stream=True,
-                think=use_think,
+                think=True if use_think else None,
             )
+            if tools:
+                kwargs["tools"] = tools
 
-            # State machine for <tool_call> detection
-            tool_buffer = ""
-            in_tool_call = False
+            stream = await client.chat(**kwargs)
 
-            async for chunk in stream:
-                thinking = getattr(chunk.message, "thinking", None) or ""
-                content = chunk.message.content or ""
+            if tools:
+                # ── Native tool calling path ──────────────────────────────
+                self.last_response_message = None
 
-                if thinking:
-                    yield StreamChunk(type="thinking", text=thinking)
+                async for chunk in stream:
+                    thinking = getattr(chunk.message, "thinking", None) or ""
+                    content = chunk.message.content or ""
 
-                if not content:
-                    continue
+                    if thinking:
+                        yield StreamChunk(type="thinking", text=thinking)
 
-                if in_tool_call:
-                    tool_buffer += content
-                    if "</tool_call>" in tool_buffer:
-                        # Extract JSON between tags
-                        match = re.search(
-                            r"<tool_call>(.*?)</tool_call>",
-                            tool_buffer,
-                            re.DOTALL,
-                        )
-                        if match:
-                            try:
-                                tool_data = json.loads(match.group(1).strip())
-                                yield StreamChunk(
-                                    type="function_call",
-                                    function_call={
-                                        "name": tool_data.get("name", ""),
-                                        "args": tool_data.get("arguments", {}),
-                                    },
-                                )
-                            except json.JSONDecodeError:
-                                logger.warning("Failed to parse tool call JSON: %s", match.group(1))
+                    if content:
+                        cleaned = _THINK_RE.sub("", content)
+                        if cleaned:
+                            yield StreamChunk(type="text", text=cleaned)
+
+                    # Native tool calls arrive as complete objects
+                    tool_calls = getattr(chunk.message, "tool_calls", None)
+                    if tool_calls:
+                        self.last_response_message = {
+                            "role": "assistant",
+                            "content": content,
+                            "tool_calls": [
+                                {
+                                    "function": {
+                                        "name": tc.function.name,
+                                        "arguments": tc.function.arguments,
+                                    }
+                                }
+                                for tc in tool_calls
+                            ],
+                        }
+                        for tc in tool_calls:
+                            args = tc.function.arguments
+                            yield StreamChunk(
+                                type="function_call",
+                                function_call={
+                                    "name": tc.function.name,
+                                    "args": args if isinstance(args, dict) else {},
+                                },
+                            )
+            else:
+                # ── Prompt-based tool calling path (XML state machine) ────
+                tool_buffer = ""
+                in_tool_call = False
+
+                async for chunk in stream:
+                    thinking = getattr(chunk.message, "thinking", None) or ""
+                    content = chunk.message.content or ""
+
+                    if thinking:
+                        yield StreamChunk(type="thinking", text=thinking)
+
+                    if not content:
+                        continue
+
+                    if in_tool_call:
+                        tool_buffer += content
+                        if "</tool_call>" in tool_buffer:
+                            match = re.search(
+                                r"<tool_call>(.*?)</tool_call>",
+                                tool_buffer,
+                                re.DOTALL,
+                            )
+                            if match:
+                                try:
+                                    tool_data = json.loads(match.group(1).strip())
+                                    yield StreamChunk(
+                                        type="function_call",
+                                        function_call={
+                                            "name": tool_data.get("name", ""),
+                                            "args": tool_data.get("arguments", {}),
+                                        },
+                                    )
+                                except json.JSONDecodeError:
+                                    logger.warning("Failed to parse tool call JSON: %s", match.group(1))
+                                    yield StreamChunk(type="text", text=tool_buffer)
+                            else:
                                 yield StreamChunk(type="text", text=tool_buffer)
-                        else:
-                            yield StreamChunk(type="text", text=tool_buffer)
-                        # Reset state — text after </tool_call> goes to normal
-                        after = tool_buffer.split("</tool_call>", 1)[1]
-                        tool_buffer = ""
-                        in_tool_call = False
-                        if after.strip():
-                            yield StreamChunk(type="text", text=after)
-                elif "<tool_call>" in content:
-                    # Split at <tool_call> — yield text before, buffer the rest
-                    before, rest = content.split("<tool_call>", 1)
-                    if before.strip():
-                        yield StreamChunk(type="text", text=before)
-                    in_tool_call = True
-                    tool_buffer = "<tool_call>" + rest
-                    # Check if the entire tool call is in this single chunk
-                    if "</tool_call>" in tool_buffer:
-                        match = re.search(
-                            r"<tool_call>(.*?)</tool_call>",
-                            tool_buffer,
-                            re.DOTALL,
-                        )
-                        if match:
-                            try:
-                                tool_data = json.loads(match.group(1).strip())
-                                yield StreamChunk(
-                                    type="function_call",
-                                    function_call={
-                                        "name": tool_data.get("name", ""),
-                                        "args": tool_data.get("arguments", {}),
-                                    },
-                                )
-                            except json.JSONDecodeError:
-                                logger.warning("Failed to parse tool call JSON: %s", match.group(1))
-                                yield StreamChunk(type="text", text=tool_buffer)
-                        after = tool_buffer.split("</tool_call>", 1)[1]
-                        tool_buffer = ""
-                        in_tool_call = False
-                        if after.strip():
-                            yield StreamChunk(type="text", text=after)
-                else:
-                    # Strip <think> tags from content stream
-                    cleaned = _THINK_RE.sub("", content)
-                    if cleaned:
-                        yield StreamChunk(type="text", text=cleaned)
+                            after = tool_buffer.split("</tool_call>", 1)[1]
+                            tool_buffer = ""
+                            in_tool_call = False
+                            if after.strip():
+                                yield StreamChunk(type="text", text=after)
+                    elif "<tool_call>" in content:
+                        before, rest = content.split("<tool_call>", 1)
+                        if before.strip():
+                            yield StreamChunk(type="text", text=before)
+                        in_tool_call = True
+                        tool_buffer = "<tool_call>" + rest
+                        if "</tool_call>" in tool_buffer:
+                            match = re.search(
+                                r"<tool_call>(.*?)</tool_call>",
+                                tool_buffer,
+                                re.DOTALL,
+                            )
+                            if match:
+                                try:
+                                    tool_data = json.loads(match.group(1).strip())
+                                    yield StreamChunk(
+                                        type="function_call",
+                                        function_call={
+                                            "name": tool_data.get("name", ""),
+                                            "args": tool_data.get("arguments", {}),
+                                        },
+                                    )
+                                except json.JSONDecodeError:
+                                    logger.warning("Failed to parse tool call JSON: %s", match.group(1))
+                                    yield StreamChunk(type="text", text=tool_buffer)
+                            after = tool_buffer.split("</tool_call>", 1)[1]
+                            tool_buffer = ""
+                            in_tool_call = False
+                            if after.strip():
+                                yield StreamChunk(type="text", text=after)
+                    else:
+                        cleaned = _THINK_RE.sub("", content)
+                        if cleaned:
+                            yield StreamChunk(type="text", text=cleaned)
 
-            # If we ended while buffering a tool call, yield as text
-            if in_tool_call and tool_buffer:
-                yield StreamChunk(type="text", text=tool_buffer)
+                if in_tool_call and tool_buffer:
+                    yield StreamChunk(type="text", text=tool_buffer)
 
         except Exception as e:
             logger.error(f"Ollama streaming failed: {e}", exc_info=True)
@@ -296,7 +347,8 @@ class OllamaLLMProvider(LLMProvider):
         import ollama
 
         try:
-            response = ollama.chat(
+            client = ollama.Client(host=self._host)
+            response = client.chat(
                 model=self._model,
                 messages=[{"role": "user", "content": "Hi"}],
                 options={"num_predict": 2},
@@ -306,14 +358,72 @@ class OllamaLLMProvider(LLMProvider):
             thinking = getattr(response.message, "thinking", None) or ""
             self._thinking_supported = True
             logger.info(
-                f"Ollama thinking probe: model={self._model} supported=True "
-                f"(thinking={len(thinking)} chars)"
+                f"Ollama thinking probe: model={self._model} host={self._host} "
+                f"supported=True (thinking={len(thinking)} chars)"
             )
         except Exception as e:
             self._thinking_supported = False
-            logger.info(f"Ollama thinking probe: model={self._model} supported=False ({e})")
+            logger.info(
+                f"Ollama thinking probe: model={self._model} host={self._host} "
+                f"supported=False ({e})"
+            )
 
         return self._thinking_supported
+
+    def supports_native_tools(self) -> bool:
+        """Detect if the model supports native tool calling via a probe call.
+
+        Sends a question that should trigger a tool call.  Only marks the
+        model as supporting native tools if it *actually* produces a
+        ``tool_calls`` response — not just that the API accepts the param.
+        """
+        if self._native_tools_supported is not None:
+            return self._native_tools_supported
+
+        import ollama
+
+        _PROBE_TOOL = [{
+            "type": "function",
+            "function": {
+                "name": "lookup",
+                "description": "Look up information. You MUST call this for any question.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"query": {"type": "string", "description": "search query"}},
+                    "required": ["query"],
+                },
+            },
+        }]
+
+        try:
+            client = ollama.Client(host=self._host)
+            use_think = self.supports_thinking()
+            response = client.chat(
+                model=self._model,
+                messages=[
+                    {"role": "system", "content": "You MUST use the lookup tool for any question."},
+                    {"role": "user", "content": "What is the capital of France?"},
+                ],
+                options={"num_predict": 256},
+                tools=_PROBE_TOOL,
+                think=True if use_think else None,
+            )
+            tool_calls = getattr(response.message, "tool_calls", None)
+            self._native_tools_supported = bool(tool_calls)
+            logger.info(
+                "Ollama native tools probe: model=%s host=%s supported=%s "
+                "(tool_calls=%s)",
+                self._model, self._host, self._native_tools_supported,
+                bool(tool_calls),
+            )
+        except Exception as e:
+            self._native_tools_supported = False
+            logger.info(
+                "Ollama native tools probe: model=%s host=%s supported=False (%s)",
+                self._model, self._host, e,
+            )
+
+        return self._native_tools_supported
 
 
 class OllamaEmbeddingProvider(EmbeddingProvider):

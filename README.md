@@ -186,11 +186,15 @@ Extended thinking is automatically configured — Gemini 2.5 uses `thinking_budg
 
 #### Ollama (Local / Self-hosted)
 
-| Model | Parameters | Recommendation |
-|---|---|---|
-| `qwen3.5:9b` | 9B | Good multilingual support, solid tool calling **Recommended default** |
-| `qwen3.5:4b` | 4B | Lightweight, works on 8GB RAM. May miss some tool calls |
-| `gemma3:12b` | 12B | Best balance of quality and speed.  |
+| Model | Parameters | Tool Calling | Recommendation |
+|---|---|---|---|
+| `gemma4:e4b` | 4.5B effective (8B total) | Native | **Recommended default** — best quality/size ratio, 128K context, vision + thinking + native tool calling |
+| `gemma4:e2b` | 2.3B effective (5.1B total) | Native | Ultra-lightweight, fast responses. Needs thinking enabled for reliable tool calls |
+| `qwen3.5:9b` | 9B | Native | Good multilingual support, solid tool calling |
+| `qwen3.5:4b` | 4B | Native | Lightweight, works on 8GB RAM. May miss some tool calls |
+| `gemma3:12b` | 12B | Prompt-based | Best balance of quality and speed for older Ollama versions |
+
+> **Tip**: Gemma 4 models require **Ollama v0.20.0+**. NexusRAG auto-detects native tool calling support — models that support it use Ollama's native tools API (more reliable), others fall back to prompt-based tool calling automatically.
 
 > **Tip**: For Knowledge Graph extraction, larger models (12B+) produce significantly better entity/relationship quality. Smaller models (4B) may extract zero entities on complex documents.
 
@@ -203,7 +207,7 @@ GOOGLE_AI_API_KEY=your-key
 
 # Local (Ollama) — uncomment to switch
 # LLM_PROVIDER=ollama
-# OLLAMA_MODEL=gemma3:12b
+# OLLAMA_MODEL=gemma4:e4b
 ```
 
 #### KG Embedding Providers
@@ -234,7 +238,7 @@ The chat system uses a semi-agentic architecture with real-time SSE streaming:
 
 - **Agent steps** — Visual timeline: Analyzing → Retrieving → Generating → Done (with live timers)
 - **Extended thinking** — Gemini/Ollama reasoning displayed in a collapsible panel
-- **Function calling** — Native (Gemini) or prompt-based (Ollama) `search_documents` tool
+- **Function calling** — 3-tier: Native (Gemini), Native (Ollama — Gemma 4, Qwen 3.5), or prompt-based fallback (older models). Auto-detected via probe
 - **Force-search mode** — Pre-retrieval before LLM generation for guaranteed grounded answers
 - **Heartbeat** — 15s SSE keepalive prevents TCP timeout on slow responses
 - **Fallback** — If Ollama produces empty output, auto-triggers search + retry
