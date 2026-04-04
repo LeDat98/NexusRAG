@@ -170,7 +170,7 @@ Interactive force-directed graph built from extracted entities and relationships
 
 </details>
 
-<details>
+<details open>
 <summary><b>Multi-Provider LLM</b></summary>
 
 Switch between cloud and local models with a single environment variable:
