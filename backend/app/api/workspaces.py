@@ -1,6 +1,8 @@
 """
 Knowledge Base (Workspace) CRUD API endpoints.
 """
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
@@ -15,6 +17,8 @@ from app.schemas.workspace import (
     WorkspaceResponse,
     WorkspaceSummary,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/workspaces", tags=["workspaces"])
 
@@ -154,15 +158,15 @@ async def delete_workspace(
         from app.services.vector_store import get_vector_store
         vs = get_vector_store(workspace_id)
         vs.delete_collection()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"Failed to delete vector collection for workspace {workspace_id}: {e}")
 
     try:
         from app.services.knowledge_graph_service import KnowledgeGraphService
         kg = KnowledgeGraphService(workspace_id)
         await kg.delete_project_data()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"Failed to delete KG data for workspace {workspace_id}: {e}")
 
     # Clean up image files
     import shutil

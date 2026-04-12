@@ -15,8 +15,7 @@ import type {
   AgentStep,
   AgentStepType,
 } from "@/types";
-
-const BASE_URL = import.meta.env.VITE_API_URL || "/api/v1";
+import { BASE_URL } from "@/lib/api";
 
 export interface RAGStreamResult {
   /** Current stream status */

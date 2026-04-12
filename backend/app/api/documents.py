@@ -304,8 +304,11 @@ async def delete_document(
             logger.warning(f"Failed to delete chunks from vector store: {e}")
 
     file_path = UPLOAD_DIR / document.filename
-    if file_path.exists():
-        os.remove(file_path)
+    try:
+        if file_path.exists():
+            os.remove(file_path)
+    except OSError as e:
+        logger.warning(f"Failed to remove uploaded file {file_path}: {e}")
 
     await db.delete(document)
     await db.commit()
