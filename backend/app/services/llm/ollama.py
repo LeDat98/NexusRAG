@@ -347,7 +347,7 @@ class OllamaLLMProvider(LLMProvider):
         import ollama
 
         try:
-            client = ollama.Client(host=self._host)
+            client = ollama.Client(host=self._host, timeout=10.0)
             response = client.chat(
                 model=self._model,
                 messages=[{"role": "user", "content": "Hi"}],
@@ -396,7 +396,7 @@ class OllamaLLMProvider(LLMProvider):
         }]
 
         try:
-            client = ollama.Client(host=self._host)
+            client = ollama.Client(host=self._host, timeout=15.0)
             use_think = self.supports_thinking()
             response = client.chat(
                 model=self._model,
@@ -443,7 +443,8 @@ class OllamaEmbeddingProvider(EmbeddingProvider):
         import ollama
 
         try:
-            result = ollama.embed(model=self._model, input=["dimension probe"])
+            client = ollama.Client(host=self._host, timeout=10.0)
+            result = client.embed(model=self._model, input=["dimension probe"])
             dim = len(result.embeddings[0])
             logger.info(f"Detected Ollama embedding dimension: {dim} for model {self._model}")
             return dim
