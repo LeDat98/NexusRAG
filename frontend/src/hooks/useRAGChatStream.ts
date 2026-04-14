@@ -95,6 +95,7 @@ export function useRAGChatStream(workspaceId: string): RAGStreamResult {
   const [agentSteps, setAgentSteps] = useState<AgentStep[]>([]);
 
   const abortRef = useRef<AbortController | null>(null);
+  const readerRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
   const bufferRef = useRef("");
   const rafRef = useRef<number | undefined>(undefined);
 
@@ -105,10 +106,12 @@ export function useRAGChatStream(workspaceId: string): RAGStreamResult {
   // Track start time for total duration
   const streamStartRef = useRef(0);
 
-  // Cleanup on unmount
+  // Cleanup on unmount — abort fetch, cancel reader, and clear pending RAFs
   useEffect(() => {
     return () => {
       abortRef.current?.abort();
+      readerRef.current?.cancel().catch(() => {});
+      readerRef.current = null;
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
       if (thinkingRafRef.current) cancelAnimationFrame(thinkingRafRef.current);
     };
@@ -138,6 +141,8 @@ export function useRAGChatStream(workspaceId: string): RAGStreamResult {
   const cancel = useCallback(() => {
     abortRef.current?.abort();
     abortRef.current = null;
+    readerRef.current?.cancel().catch(() => {});
+    readerRef.current = null;
     setStatus("idle");
     setIsStreaming(false);
     if (rafRef.current) {
@@ -205,6 +210,21 @@ export function useRAGChatStream(workspaceId: string): RAGStreamResult {
       enableThinking: boolean,
       forceSearch: boolean = false,
     ): Promise<ChatMessage | null> => {
+      // Abort any in-flight request before starting a new one
+      abortRef.current?.abort();
+      readerRef.current?.cancel().catch(() => {});
+      readerRef.current = null;
+
+      // Cancel pending RAFs from previous stream
+      if (rafRef.current) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = undefined;
+      }
+      if (thinkingRafRef.current) {
+        cancelAnimationFrame(thinkingRafRef.current);
+        thinkingRafRef.current = undefined;
+      }
+
       // Reset state for new message
       setStreamingContent("");
       setThinkingText("");
@@ -258,6 +278,7 @@ export function useRAGChatStream(workspaceId: string): RAGStreamResult {
 
         const reader = response.body?.getReader();
         if (!reader) throw new Error("No response body");
+        readerRef.current = reader;
 
         const decoder = new TextDecoder();
         let sseBuffer = "";
@@ -443,11 +464,13 @@ export function useRAGChatStream(workspaceId: string): RAGStreamResult {
           }
         }
 
+        readerRef.current = null;
         setStatus("idle");
         setIsStreaming(false);
 
         return finalMessage;
       } catch (err) {
+        readerRef.current = null;
         if ((err as Error).name === "AbortError") {
           // User cancelled — don't set error
           return null;
