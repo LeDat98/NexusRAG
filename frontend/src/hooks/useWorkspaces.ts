@@ -11,6 +11,7 @@ export function useWorkspaces() {
   return useQuery({
     queryKey: ["workspaces"],
     queryFn: () => api.get<KnowledgeBase[]>("/workspaces"),
+    staleTime: 30_000,
   });
 }
 
