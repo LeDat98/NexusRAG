@@ -144,7 +144,7 @@ async def upload_document(
                 if not isinstance(item, dict) or "key" not in item or "value" not in item:
                     raise ValueError("Each metadata item must contain 'key' and 'value' fields")
                 parsed_metadata[item["key"]] = item["value"]
-        except Exception as e:
+        except (json.JSONDecodeError, ValueError) as e:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Invalid custom_metadata format: {e}"
